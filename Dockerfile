@@ -3,6 +3,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Install build tools required by better-sqlite3 native compilation
+RUN apk add --no-cache python3 make g++
+
 # Copy package files for dependency installation
 COPY package.json package-lock.json ./
 COPY shared/package.json shared/
@@ -26,6 +29,9 @@ RUN npm run build -w shared && \
 FROM node:20-alpine
 
 WORKDIR /app
+
+# Install build tools required by better-sqlite3 native compilation
+RUN apk add --no-cache python3 make g++
 
 # Copy package files
 COPY package.json package-lock.json ./
