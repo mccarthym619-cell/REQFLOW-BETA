@@ -40,6 +40,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const handleSetUser = useCallback((u: User) => {
+    setUser(u);
+    setStatus('authenticated');
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await api.post('/auth/logout');
@@ -55,7 +60,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [checkAuth]);
 
   return (
-    <SessionContext.Provider value={{ user, status, checkAuth, logout, setUser }}>
+    <SessionContext.Provider value={{ user, status, checkAuth, logout, setUser: handleSetUser }}>
       {children}
     </SessionContext.Provider>
   );
