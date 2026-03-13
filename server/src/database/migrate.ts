@@ -3,11 +3,20 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { getDb } from './connection';
 import { STANDARD_FIELDS } from '@req-tracker/shared';
+import { config } from '../config/env';
 import { logger } from '../config/logger';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function runMigrations(): void {
+  // Support RESET_DB env var for production DB reset (delete DB before migrations)
+  if (process.env.RESET_DB === 'true') {
+    if (fs.existsSync(config.databasePath)) {
+      fs.unlinkSync(config.databasePath);
+      logger.info('RESET_DB: Database deleted for fresh seed.');
+    }
+  }
+
   const db = getDb();
 
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
@@ -83,14 +92,11 @@ function seedStandardTemplate(db: ReturnType<typeof getDb>): void {
 
 // Allow running directly: tsx src/database/migrate.ts --reset
 if (process.argv.includes('--reset')) {
-  (async () => {
-    const { config } = await import('../config/env');
-    if (fs.existsSync(config.databasePath)) {
-      fs.unlinkSync(config.databasePath);
-      logger.info('Database deleted.');
-    }
-    runMigrations();
-    logger.info('Database reset complete.');
-    process.exit(0);
-  })();
+  if (fs.existsSync(config.databasePath)) {
+    fs.unlinkSync(config.databasePath);
+    logger.info('Database deleted.');
+  }
+  runMigrations();
+  logger.info('Database reset complete.');
+  process.exit(0);
 }
