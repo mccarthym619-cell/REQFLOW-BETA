@@ -5,6 +5,11 @@ import path from 'path';
 export default defineConfig({
   root: path.resolve(__dirname),
   plugins: [react()],
+  resolve: {
+    alias: {
+      '@req-tracker/shared': path.resolve(__dirname, '../shared/src/index.ts'),
+    },
+  },
   server: {
     port: 5173,
     host: '0.0.0.0',
