@@ -43,8 +43,9 @@ COPY client/package.json client/
 # Install production dependencies only
 RUN npm ci --omit=dev
 
-# Copy shared dist (compiled JS needed by server at runtime)
-COPY --from=builder /app/shared/dist/ shared/dist/
+# Copy shared (full package: dist for runtime + src for tsx resolution)
+COPY --from=builder /app/shared/ shared/
+RUN ls -la shared/dist/types/ | head -5
 
 # Copy server source (tsx runs TypeScript directly)
 COPY --from=builder /app/server/src/ server/src/
