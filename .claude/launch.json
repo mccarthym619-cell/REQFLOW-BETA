@@ -1,0 +1,36 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "api-server",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "server/src/index.ts"],
+      "port": 3001
+    },
+    {
+      "name": "client-dev",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--config", "client/vite.config.ts"],
+      "port": 5173
+    },
+    {
+      "name": "production",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/dist/index.js"],
+      "port": 3001,
+      "env": {
+        "NODE_ENV": "production",
+        "ACCESS_CODE": "test123",
+        "SESSION_SECRET": "dev-testing-secret-key",
+        "DATABASE_PATH": "./data/requisition-tracker.db",
+        "UPLOADS_DIR": "./data/uploads"
+      }
+    }
+  ]
+}

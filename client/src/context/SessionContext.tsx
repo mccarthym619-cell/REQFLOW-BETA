@@ -1,0 +1,66 @@
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { api } from '../api/client';
+import type { User } from '@req-tracker/shared';
+
+type SessionStatus = 'loading' | 'authenticated' | 'unauthenticated';
+
+interface SessionContextType {
+  user: User | null;
+  status: SessionStatus;
+  checkAuth: () => Promise<void>;
+  logout: () => Promise<void>;
+  setUser: (user: User) => void;
+}
+
+const SessionContext = createContext<SessionContextType>({
+  user: null,
+  status: 'loading',
+  checkAuth: async () => {},
+  logout: async () => {},
+  setUser: () => {},
+});
+
+export function SessionProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [status, setStatus] = useState<SessionStatus>('loading');
+
+  const checkAuth = useCallback(async () => {
+    try {
+      const res = await api.get('/auth/check');
+      if (res.data.data.authenticated && res.data.data.user) {
+        setUser(res.data.data.user);
+        setStatus('authenticated');
+      } else {
+        setUser(null);
+        setStatus('unauthenticated');
+      }
+    } catch {
+      setUser(null);
+      setStatus('unauthenticated');
+    }
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // ignore
+    }
+    setUser(null);
+    setStatus('unauthenticated');
+  }, []);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  return (
+    <SessionContext.Provider value={{ user, status, checkAuth, logout, setUser }}>
+      {children}
+    </SessionContext.Provider>
+  );
+}
+
+export function useSession() {
+  return useContext(SessionContext);
+}
