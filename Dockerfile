@@ -24,7 +24,6 @@ COPY tsconfig.base.json .
 # Build shared (needed at runtime by server) and client (static assets)
 # Use npm exec for client to skip tsc type-check while keeping workspace resolution
 RUN npm run build -w shared && \
-    ls shared/dist/types/user.js && \
     npm exec -w client -- vite build
 
 # --- Production stage ---
@@ -45,13 +44,7 @@ COPY client/package.json client/
 RUN npm ci --omit=dev
 
 # Copy shared dist (compiled JS needed by server at runtime)
-# Use explicit subdirectory copies to ensure nested dirs are included
-COPY --from=builder /app/shared/dist/index.js shared/dist/index.js
-COPY --from=builder /app/shared/dist/index.js.map shared/dist/index.js.map
-COPY --from=builder /app/shared/dist/types shared/dist/types
-COPY --from=builder /app/shared/dist/constants shared/dist/constants
-COPY --from=builder /app/shared/dist/utils shared/dist/utils
-COPY --from=builder /app/shared/src shared/src
+COPY --from=builder /app/shared/dist/ shared/dist/
 
 # Copy server source (tsx runs TypeScript directly)
 COPY --from=builder /app/server/src/ server/src/
