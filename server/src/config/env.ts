@@ -20,11 +20,16 @@ if (isProduction && (!sessionSecret || sessionSecret.length < 32)) {
   process.exit(1);
 }
 
+function resolveProjectPath(envValue: string | undefined, ...fallback: string[]): string {
+  const raw = envValue || path.join(...fallback);
+  return path.isAbsolute(raw) ? raw : path.resolve(PROJECT_ROOT, raw);
+}
+
 export const config = {
   nodeEnv,
   port: parseInt(process.env.PORT || '3001', 10),
-  databasePath: process.env.DATABASE_PATH || path.resolve(PROJECT_ROOT, 'data', 'requisition-tracker.db'),
-  uploadsDir: process.env.UPLOADS_DIR || path.resolve(PROJECT_ROOT, 'data', 'uploads'),
+  databasePath: resolveProjectPath(process.env.DATABASE_PATH, 'data', 'requisition-tracker.db'),
+  uploadsDir: resolveProjectPath(process.env.UPLOADS_DIR, 'data', 'uploads'),
   sessionSecret,
   smtp: {
     host: process.env.SMTP_HOST || '',

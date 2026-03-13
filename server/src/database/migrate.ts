@@ -27,6 +27,14 @@ export function runMigrations(): void {
   // Seed the Standard Request template if it doesn't exist
   seedStandardTemplate(db);
 
+  // Seed demo requests (depends on template + field definitions existing)
+  const hasRequests = db.prepare('SELECT COUNT(*) as count FROM requests').get() as any;
+  if (hasRequests.count === 0) {
+    const demoSeed = fs.readFileSync(path.join(__dirname, 'seed-demo.sql'), 'utf-8');
+    db.exec(demoSeed);
+    logger.info('Demo request data seeded.');
+  }
+
   logger.info('Database migrations and seed data applied.');
 }
 
