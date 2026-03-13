@@ -21,9 +21,11 @@ COPY server/ server/
 COPY client/ client/
 COPY tsconfig.base.json .
 
-# Build shared (needed at runtime by server) and client (static assets)
-# Use npm exec for client to skip tsc type-check while keeping workspace resolution
-RUN npm run build -w shared && \
+# Clean stale build artifacts (belt-and-suspenders with .dockerignore)
+# Then build shared (runtime dep) and client (static assets)
+RUN rm -rf shared/dist shared/*.tsbuildinfo && \
+    npm run build -w shared && \
+    ls shared/dist/types/user.js && \
     npm exec -w client -- vite build
 
 # --- Production stage ---
