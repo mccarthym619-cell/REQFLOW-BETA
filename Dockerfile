@@ -22,9 +22,9 @@ COPY client/ client/
 COPY tsconfig.base.json .
 
 # Build shared (needed at runtime by server) and client (static assets)
-# Skip client tsc type-check in Docker — Vite handles transpilation
+# Use npm exec for client to skip tsc type-check while keeping workspace resolution
 RUN npm run build -w shared && \
-    cd client && npx vite build
+    npm exec -w client -- vite build
 
 # --- Production stage ---
 FROM node:20-alpine
