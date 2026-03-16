@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { StatusBadge } from '../../components/shared/StatusBadge';
 import { PriorityBadge } from '../../components/shared/PriorityBadge';
 import { LoadingSpinner } from '../../components/shared/LoadingSpinner';
-import { FileText, CheckSquare, AlertTriangle, Clock, Package } from 'lucide-react';
+import { Clock, Package } from 'lucide-react';
 import { STATUS_LABELS } from '@req-tracker/shared';
 import type { RequestStatus } from '@req-tracker/shared';
 import { formatRelative } from '../../utils/dateFormat';
@@ -18,6 +18,7 @@ export function DashboardPage() {
   const [awaitingCompletion, setAwaitingCompletion] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const isN4 = currentUser?.role === 'n4' || currentUser?.role === 'admin';
+  const isRequester = currentUser?.role === 'requester';
 
   useEffect(() => {
     loadDashboard();
@@ -57,6 +58,39 @@ export function DashboardPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Dashboard</h1>
 
+      {/* Pending Your Action — top of page for requesters */}
+      {isRequester && (
+        <div className="card">
+          <div className="p-4 border-b border-gray-100 dark:border-gray-700">
+            <h2 className="font-semibold text-gray-900 dark:text-gray-100">Pending Your Action</h2>
+          </div>
+          {pending.length === 0 ? (
+            <p className="p-4 text-sm text-gray-500 text-center">No pending actions</p>
+          ) : (
+            <div className="divide-y divide-gray-50 dark:divide-gray-800">
+              {pending.map((item: any) => (
+                <Link
+                  key={item.id}
+                  to={`/requests/${item.id}`}
+                  className="flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{item.reference_number} - {item.title}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {item.submitter_name} | {item.step_name}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 ml-4">
+                    <PriorityBadge priority={item.priority} />
+                    <StatusBadge status={item.status} />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Status Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {statuses.map(status => (
@@ -71,37 +105,6 @@ export function DashboardPage() {
             </p>
           </Link>
         ))}
-      </div>
-
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="card p-4 flex items-center gap-4">
-          <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/40 rounded-lg flex items-center justify-center">
-            <CheckSquare className="w-5 h-5 text-blue-600" />
-          </div>
-          <div>
-            <p className="text-2xl font-bold">{summary?.pending_my_action ?? 0}</p>
-            <p className="text-sm text-gray-500">Awaiting Your Action</p>
-          </div>
-        </div>
-        <div className="card p-4 flex items-center gap-4">
-          <div className="w-10 h-10 bg-yellow-100 dark:bg-yellow-900/40 rounded-lg flex items-center justify-center">
-            <AlertTriangle className="w-5 h-5 text-yellow-600" />
-          </div>
-          <div>
-            <p className="text-2xl font-bold">{summary?.sla_at_risk ?? 0}</p>
-            <p className="text-sm text-gray-500">SLA At Risk</p>
-          </div>
-        </div>
-        <div className="card p-4 flex items-center gap-4">
-          <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-            <FileText className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-          </div>
-          <div>
-            <p className="text-2xl font-bold">{summary?.total_requests ?? 0}</p>
-            <p className="text-sm text-gray-500">Total Requests</p>
-          </div>
-        </div>
       </div>
 
       {/* Awaiting Purchase Completion — N4 / Admin only */}
@@ -141,37 +144,39 @@ export function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Pending Actions */}
-        <div className="card">
-          <div className="p-4 border-b border-gray-100 dark:border-gray-700">
-            <h2 className="font-semibold text-gray-900 dark:text-gray-100">Pending Your Action</h2>
-          </div>
-          {pending.length === 0 ? (
-            <p className="p-4 text-sm text-gray-500 text-center">No pending actions</p>
-          ) : (
-            <div className="divide-y divide-gray-50 dark:divide-gray-800">
-              {pending.map((item: any) => (
-                <Link
-                  key={item.id}
-                  to={`/requests/${item.id}`}
-                  className="flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{item.reference_number} - {item.title}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {item.submitter_name} | {item.step_name}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 ml-4">
-                    <PriorityBadge priority={item.priority} />
-                    <StatusBadge status={item.status} />
-                  </div>
-                </Link>
-              ))}
+      <div className={`grid grid-cols-1 ${!isRequester ? 'lg:grid-cols-2' : ''} gap-6`}>
+        {/* Pending Actions — hidden for requesters (shown at top instead) */}
+        {!isRequester && (
+          <div className="card">
+            <div className="p-4 border-b border-gray-100 dark:border-gray-700">
+              <h2 className="font-semibold text-gray-900 dark:text-gray-100">Pending Your Action</h2>
             </div>
-          )}
-        </div>
+            {pending.length === 0 ? (
+              <p className="p-4 text-sm text-gray-500 text-center">No pending actions</p>
+            ) : (
+              <div className="divide-y divide-gray-50 dark:divide-gray-800">
+                {pending.map((item: any) => (
+                  <Link
+                    key={item.id}
+                    to={`/requests/${item.id}`}
+                    className="flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{item.reference_number} - {item.title}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {item.submitter_name} | {item.step_name}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 ml-4">
+                      <PriorityBadge priority={item.priority} />
+                      <StatusBadge status={item.status} />
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Recent Activity */}
         <div className="card">
