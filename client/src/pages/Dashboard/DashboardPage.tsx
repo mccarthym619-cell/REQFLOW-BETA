@@ -8,7 +8,7 @@ import { LoadingSpinner } from '../../components/shared/LoadingSpinner';
 import { FileText, CheckSquare, AlertTriangle, Clock, Package } from 'lucide-react';
 import { STATUS_LABELS } from '@req-tracker/shared';
 import type { RequestStatus } from '@req-tracker/shared';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelative } from '../../utils/dateFormat';
 
 export function DashboardPage() {
   const { currentUser } = useAuth();
@@ -197,7 +197,7 @@ export function DashboardPage() {
                         )}
                       </p>
                       <p className="text-xs text-gray-400 mt-0.5">
-                        {formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}
+                        {formatRelative(item.created_at)}
                       </p>
                     </div>
                   </div>

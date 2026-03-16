@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { LayoutDashboard, FileText, CheckSquare, Bell, Settings, Users, ClipboardList, ScrollText, HelpCircle } from 'lucide-react';
+import { LayoutDashboard, FileText, CheckSquare, Bell, Settings, Users, ClipboardList, ScrollText, HelpCircle, Globe } from 'lucide-react';
 import { HelpGuide } from '../shared/HelpGuide';
 import { hasPermission } from '@req-tracker/shared';
 import type { UserRole } from '@req-tracker/shared';
@@ -11,6 +11,7 @@ const navItems = [
   { to: '/requests', icon: FileText, label: 'My Requests' },
   { to: '/approvals', icon: CheckSquare, label: 'Pending Approvals' },
   { to: '/notifications', icon: Bell, label: 'Notifications' },
+  { to: '/settings', icon: Globe, label: 'Settings' },
 ];
 
 const adminItems = [

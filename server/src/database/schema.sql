@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     display_name    TEXT    NOT NULL,
     role            TEXT    NOT NULL CHECK (role IN ('admin', 'approver', 'n4', 'contracting', 'reviewer', 'requester', 'viewer')),
     password_hash   TEXT    DEFAULT NULL,
+    timezone        TEXT    NOT NULL DEFAULT 'UTC',
     is_active       INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))

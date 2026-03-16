@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../../api/client';
 import { LoadingSpinner } from '../../../components/shared/LoadingSpinner';
-import { format } from 'date-fns';
+import { formatDate } from '../../../utils/dateFormat';
+import { useTimezone } from '../../../hooks/useTimezone';
 import type { AuditEntry } from '@req-tracker/shared';
 
 export function AuditLogPage() {
+  const timezone = useTimezone();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -95,7 +97,7 @@ export function AuditLogPage() {
                 {entries.map(entry => (
                   <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                     <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
-                      {format(new Date(entry.created_at), 'MMM d, h:mm a')}
+                      {formatDate(entry.created_at, 'MMM d, h:mm a', timezone)}
                     </td>
                     <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{entry.performer_name}</td>
                     <td className="px-4 py-3">

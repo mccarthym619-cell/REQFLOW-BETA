@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireRole } from '../middleware/requireRole';
 import { validateBody } from '../middleware/validateBody';
 import * as usersService from '../services/users.service';
+import { getDb } from '../database/connection';
 import { config } from '../config/env';
 
 const router = Router();
@@ -30,6 +31,16 @@ router.get('/', ...(config.nodeEnv === 'production' ? [requireRole('admin')] : [
 // GET /api/users/me - Current user
 router.get('/me', (req: Request, res: Response) => {
   res.json({ data: req.user });
+});
+
+// PUT /api/users/me/timezone - Update current user's timezone
+const timezoneSchema = z.object({ timezone: z.string().min(1).max(100) });
+router.put('/me/timezone', validateBody(timezoneSchema), (req: Request, res: Response) => {
+  const db = getDb();
+  db.prepare("UPDATE users SET timezone = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(req.body.timezone, req.user!.id);
+  const user = usersService.getUserById(req.user!.id);
+  res.json({ data: user });
 });
 
 // GET /api/users/:id - Get user by ID

@@ -28,8 +28,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try {
       const res = await api.get('/auth/check');
       if (res.data.data.authenticated && res.data.data.user) {
-        setUser(res.data.data.user);
+        const userData = res.data.data.user;
+        setUser(userData);
         setStatus('authenticated');
+
+        // Auto-detect browser timezone for users still on UTC default
+        if (userData.timezone === 'UTC') {
+          const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          if (browserTz && browserTz !== 'UTC') {
+            api.put('/users/me/timezone', { timezone: browserTz }).then(() => {
+              setUser({ ...userData, timezone: browserTz });
+            }).catch(() => {});
+          }
+        }
       } else {
         setUser(null);
         setStatus('unauthenticated');

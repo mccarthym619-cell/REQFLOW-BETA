@@ -3,7 +3,7 @@ import { createAuditEntry } from './audit.service';
 import type { User, CreateUserPayload, UpdateUserPayload } from '@req-tracker/shared';
 
 // Columns to select for public user queries (excludes password_hash)
-const USER_COLUMNS = 'id, email, display_name, role, is_active, (password_hash IS NOT NULL) as has_password, created_at, updated_at';
+const USER_COLUMNS = 'id, email, display_name, role, timezone, is_active, (password_hash IS NOT NULL) as has_password, created_at, updated_at';
 
 function rowToUser(row: any): User {
   return { ...row, is_active: Boolean(row.is_active), has_password: Boolean(row.has_password) };
@@ -79,6 +79,7 @@ export function updateUser(id: number, payload: UpdateUserPayload, performedBy: 
   if (payload.email !== undefined) { updates.push('email = ?'); values.push(payload.email); }
   if (payload.display_name !== undefined) { updates.push('display_name = ?'); values.push(payload.display_name); }
   if (payload.role !== undefined) { updates.push('role = ?'); values.push(payload.role); }
+  if (payload.timezone !== undefined) { updates.push('timezone = ?'); values.push(payload.timezone); }
   if (payload.is_active !== undefined) { updates.push('is_active = ?'); values.push(payload.is_active ? 1 : 0); }
 
   if (updates.length === 0) return existing;

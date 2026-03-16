@@ -8,7 +8,7 @@ import { LoadingSpinner } from '../../components/shared/LoadingSpinner';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { Plus } from 'lucide-react';
 import { hasPermission } from '@req-tracker/shared';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelative } from '../../utils/dateFormat';
 import type { Request as ReqType, RequestStatus, UserRole } from '@req-tracker/shared';
 
 export function RequestListPage() {
@@ -119,7 +119,7 @@ export function RequestListPage() {
                     <td className="px-4 py-3"><PriorityBadge priority={req.priority} /></td>
                     <td className="px-4 py-3 text-sm text-gray-500">{req.submitter_name}</td>
                     <td className="px-4 py-3 text-xs text-gray-400">
-                      {formatDistanceToNow(new Date(req.created_at), { addSuffix: true })}
+                      {formatRelative(req.created_at)}
                     </td>
                   </tr>
                 ))}

@@ -6,7 +6,8 @@ import { StatusBadge } from '../../components/shared/StatusBadge';
 import { PriorityBadge } from '../../components/shared/PriorityBadge';
 import { LoadingSpinner } from '../../components/shared/LoadingSpinner';
 import { CheckCircle, XCircle, RotateCcw, Clock, MessageSquare, ArrowLeft, Edit, Ban, Bell, Package, FileCheck, Award, Link, Paperclip } from 'lucide-react';
-import { formatDistanceToNow, format } from 'date-fns';
+import { formatDate, formatRelative } from '../../utils/dateFormat';
+import { useTimezone } from '../../hooks/useTimezone';
 import type { Request as ReqType, RequestApprovalStep, AuditEntry, Comment, Nudge, CustomFieldDefinition } from '@req-tracker/shared';
 
 type Tab = 'details' | 'approval' | 'timeline' | 'comments';
@@ -15,6 +16,7 @@ export function RequestDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+  const timezone = useTimezone();
   const [request, setRequest] = useState<ReqType | null>(null);
   const [template, setTemplate] = useState<{ fields: CustomFieldDefinition[] } | null>(null);
   const [steps, setSteps] = useState<RequestApprovalStep[]>([]);
@@ -225,7 +227,7 @@ export function RequestDetailPage() {
           </div>
           <p className="text-gray-600 dark:text-gray-400 mt-1">{request.title}</p>
           <p className="text-sm text-gray-400 mt-0.5">
-            Submitted by {request.submitter_name} {request.submitted_at && `on ${format(new Date(request.submitted_at), 'MMM d, yyyy')}`}
+            Submitted by {request.submitter_name} {request.submitted_at && `on ${formatDate(request.submitted_at, 'MMM d, yyyy', timezone)}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -254,7 +256,7 @@ export function RequestDetailPage() {
           {pendingNudges.map(n => (
             <div key={n.id} className="mt-2 flex items-center gap-3">
               <span className="text-xs text-yellow-700 dark:text-yellow-400">
-                Nudged by {n.nudged_by_name} {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
+                Nudged by {n.nudged_by_name} {formatRelative(n.created_at)}
               </span>
               <button onClick={() => handleAcknowledgeNudge(n.id)} className="btn-sm bg-yellow-200 text-yellow-900 hover:bg-yellow-300 dark:bg-yellow-800 dark:text-yellow-200 dark:hover:bg-yellow-700">
                 Acknowledge
@@ -478,7 +480,7 @@ export function RequestDetailPage() {
                     </p>
                     {step.acted_on_at && (
                       <p className="text-xs text-gray-400 mt-0.5">
-                        {step.status.charAt(0).toUpperCase() + step.status.slice(1)} by {step.acted_on_by_name} on {format(new Date(step.acted_on_at), 'MMM d, yyyy h:mm a')}
+                        {step.status.charAt(0).toUpperCase() + step.status.slice(1)} by {step.acted_on_by_name} on {formatDate(step.acted_on_at, 'MMM d, yyyy h:mm a', timezone)}
                       </p>
                     )}
                     {step.decision_notes && (
@@ -518,7 +520,7 @@ export function RequestDetailPage() {
                       </p>
                     )}
                     <p className="text-xs text-gray-400 mt-0.5">
-                      {format(new Date(entry.created_at), 'MMM d, yyyy h:mm a')}
+                      {formatDate(entry.created_at, 'MMM d, yyyy h:mm a', timezone)}
                     </p>
                   </div>
                 </div>
@@ -546,7 +548,7 @@ export function RequestDetailPage() {
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{c.user_name}</span>
                             <span className="text-xs text-gray-400">
-                              {formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
+                              {formatRelative(c.created_at)}
                             </span>
                             {c.is_internal && (
                               <span className="text-xs bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400 px-1.5 py-0.5 rounded">Internal</span>

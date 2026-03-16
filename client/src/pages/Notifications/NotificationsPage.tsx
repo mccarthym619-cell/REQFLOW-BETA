@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useNotifications } from '../../context/NotificationContext';
 import { EmptyState } from '../../components/shared/EmptyState';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelative } from '../../utils/dateFormat';
 import { Bell } from 'lucide-react';
 
 export function NotificationsPage() {
@@ -37,7 +37,7 @@ export function NotificationsPage() {
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{n.title}</p>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">{n.message}</p>
                 <p className="text-xs text-gray-400 mt-1">
-                  {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
+                  {formatRelative(n.created_at)}
                 </p>
               </div>
               {!n.is_read && <div className="w-2 h-2 bg-blue-500 rounded-full shrink-0 mt-1.5" />}

@@ -30,6 +30,13 @@ export function runMigrations(): void {
     if (!e.message.includes('duplicate column')) throw e;
   }
 
+  // Migration: add timezone column to existing databases
+  try {
+    db.exec("ALTER TABLE users ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC'");
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+
   const seed = fs.readFileSync(path.join(__dirname, 'seed.sql'), 'utf-8');
   db.exec(seed);
 

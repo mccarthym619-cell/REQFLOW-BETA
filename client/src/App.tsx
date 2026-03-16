@@ -16,6 +16,7 @@ import { TemplateBuilderPage } from './pages/Admin/Templates/TemplateBuilderPage
 import { UserManagementPage } from './pages/Admin/Users/UserManagementPage';
 import { AuditLogPage } from './pages/Admin/Audit/AuditLogPage';
 import { SystemSettingsPage } from './pages/Admin/Settings/SystemSettingsPage';
+import { UserSettingsPage } from './pages/Settings/UserSettingsPage';
 import { LoginPage } from './pages/Auth/LoginPage';
 import { LoadingSpinner } from './components/shared/LoadingSpinner';
 
@@ -55,6 +56,7 @@ function AppContent() {
             <Route path="/requests/:id/edit" element={<RequestCreatePage />} />
             <Route path="/approvals" element={<PendingApprovalsPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
+            <Route path="/settings" element={<UserSettingsPage />} />
             <Route path="/admin/templates" element={<TemplateListPage />} />
             <Route path="/admin/templates/new" element={<TemplateBuilderPage />} />
             <Route path="/admin/templates/:id/edit" element={<TemplateBuilderPage />} />

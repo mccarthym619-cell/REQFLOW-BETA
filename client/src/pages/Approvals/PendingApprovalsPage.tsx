@@ -6,7 +6,7 @@ import { PriorityBadge } from '../../components/shared/PriorityBadge';
 import { LoadingSpinner } from '../../components/shared/LoadingSpinner';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { CheckCircle, XCircle, RotateCcw } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelative } from '../../utils/dateFormat';
 
 export function PendingApprovalsPage() {
   const [pending, setPending] = useState<any[]>([]);
@@ -58,7 +58,7 @@ export function PendingApprovalsPage() {
                     {item.submitter_name} | {item.template_name} | Step: {item.step_name}
                   </p>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    Created {formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}
+                    Created {formatRelative(item.created_at)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 ml-4 shrink-0">

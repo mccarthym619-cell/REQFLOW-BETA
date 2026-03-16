@@ -8,7 +8,7 @@ Requisition tracking web portal for a large military organization. Tracks review
 - **Frontend**: React 18 + Vite + Tailwind CSS + TanStack Query + lucide-react icons
 - **Backend**: Node.js + Express + better-sqlite3 (synchronous API) + tsx runtime
 - **Shared**: TypeScript types, constants, enums, status machine, permissions (compiled with `module: NodeNext`, imports use `.js` extensions)
-- **Database**: SQLite stored at `data/requisition-tracker.db`
+- **Database**: SQLite stored at `data/requisition-tracker.db` (relative paths resolved against project root via `resolveProjectPath()` in `env.ts`)
 - **File uploads**: Multer → `data/uploads/` with UUID filenames
 - **Security**: Helmet headers, express-rate-limit, CORS lockdown, signed-cookie session auth
 - **Deployment**: Docker (multi-stage) → Railway with persistent volume
@@ -30,6 +30,7 @@ npm run db:reset         # Delete DB and reseed
 - Production: http://localhost:3001 (Express serves client/dist + SPA catch-all)
 - Launch config at `.claude/launch.json` (runs from parent "Work better" dir)
 - **Reset DB**: `npm run db:reset` or delete `data/requisition-tracker.db` and restart server — schema + seed data re-applied automatically
+- **Reset DB (production)**: Set `RESET_DB=true` env var → deploy → DB deleted before migrations → remove the env var after
 - **Server runs from source** via `tsx` (not compiled JS) — no `server/dist/` in production
 
 ## Access Control & Auth
@@ -83,20 +84,28 @@ Dev role-switcher toolbar at top of page. Uses `X-Current-User-Id` header — de
 ## Deployment
 
 ### Docker
-Multi-stage `Dockerfile`: builder stage (full deps + build shared/client) → production stage (prod deps + shared/dist + server/src + client/dist). Server runs via `tsx` from TypeScript source.
+Multi-stage `Dockerfile`: builder stage (full deps + build shared/client) → production stage (prod deps + shared/dist + server/src + client/dist). Server runs via `tsx` from TypeScript source. `.dockerignore` uses `**/dist/` and `**/*.tsbuildinfo` patterns to exclude build artifacts.
 
 ### Railway Config
+
+**Production URL**: `glistening-solace-production.up.railway.app`
+
+**Custom Start Command**: `npx tsx server/src/index.ts`
+
 | Env Variable | Value |
 |---|---|
 | `NODE_ENV` | `production` |
 | `SESSION_SECRET` | `openssl rand -hex 32` (min 32 chars) |
 | `DATABASE_PATH` | `/app/data/requisition-tracker.db` |
 | `UPLOADS_DIR` | `/app/data/uploads` |
+| `RESET_DB` | `true` (temporary — set to delete DB before migrations, remove after deploy) |
 
 Persistent volume: mount at `/app/data` (SQLite DB + uploaded files survive redeploys)
 
 ### Environment Config
 All env vars defined in `server/src/config/env.ts`. Defaults in `.env.example`. The `.env` file is gitignored.
+
+`resolveProjectPath()` in `env.ts` resolves relative paths (e.g. `./data/...`) against `PROJECT_ROOT` (3 levels up from `server/src/config/`). Absolute paths (e.g. `/app/data/...` in production) are used as-is. This prevents different DB files being created when cwd differs (npm workspace vs preview server).
 
 ## Dark Mode
 
@@ -121,7 +130,9 @@ In-app walkthrough for new users, accessible from the **Help Guide** button in t
 
 `users`, `request_templates`, `custom_field_definitions`, `approval_chain_steps`, `requests`, `custom_field_values`, `uploaded_files`, `request_approval_steps`, `comments`, `audit_log`, `notifications`, `nudges`, `system_settings`, `sequence_counters`
 
-Schema: `server/src/database/schema.sql` | Seed: `server/src/database/seed.sql`
+Schema: `server/src/database/schema.sql` | Seed: `server/src/database/seed.sql` | Demo data: `server/src/database/seed-demo.sql`
+
+Demo seed includes 10 requests across all statuses (draft, submitted, pending_approval, approved, rejected, returned, completed) with approval chain steps, custom field values, comments, and audit log entries. Only seeded when `requests` table is empty.
 
 ## Project Structure
 
@@ -133,7 +144,7 @@ shared/src/
 
 server/src/
   config/         — env.ts (all env vars), uploads.ts (UPLOADS_DIR, MAX_FILE_SIZE, ALLOWED_MIME_TYPES)
-  database/       — connection.ts, migrate.ts, schema.sql, seed.sql
+  database/       — connection.ts, migrate.ts, schema.sql, seed.sql, seed-demo.sql
   middleware/     — auth.ts (dev role switching), accessGate.ts (session auth cookie), errorHandler.ts, validation.ts
   routes/         — auth, files, requests, templates, users, audit, dashboard, notifications, settings
   services/       — matching service for each route + approvals, comments, nudges, sse

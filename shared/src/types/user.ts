@@ -5,6 +5,7 @@ export interface User {
   email: string;
   display_name: string;
   role: UserRole;
+  timezone: string;
   is_active: boolean;
   has_password: boolean;
   created_at: string;
@@ -21,5 +22,6 @@ export interface UpdateUserPayload {
   email?: string;
   display_name?: string;
   role?: UserRole;
+  timezone?: string;
   is_active?: boolean;
 }
