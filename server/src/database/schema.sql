@@ -30,8 +30,8 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_command ON users(command_id);
-CREATE INDEX IF NOT EXISTS idx_users_role_command ON users(role, command_id, is_active);
+-- NOTE: command_id indexes are created in migrate.ts after the ALTER TABLE migration
+-- to avoid errors on existing databases that don't yet have the command_id column.
 
 -- ============================================================
 -- REQUEST TEMPLATES
