@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react';
 import { api } from '../../api/client';
 import { Paperclip, X, Upload, AlertCircle, Loader2 } from 'lucide-react';
+import { isAllowedFileType, ACCEPT_EXTENSIONS } from '../../utils/fileValidation';
+import { showError } from '../../utils/toast';
 
 interface UploadedFile {
   id: number;
@@ -74,7 +76,19 @@ export function MultiFileUploadInput({
       return;
     }
 
-    const filesToUpload = Array.from(selectedFiles).slice(0, remaining);
+    const allSelected = Array.from(selectedFiles).slice(0, remaining);
+    const filesToUpload = allSelected.filter(f => {
+      if (!isAllowedFileType(f)) {
+        showError(`"${f.name}" has an unsupported file type and was skipped.`);
+        return false;
+      }
+      return true;
+    });
+    if (filesToUpload.length === 0) {
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
+
     setError('');
     setUploading(true);
 
@@ -172,7 +186,7 @@ export function MultiFileUploadInput({
             onChange={handleFileSelect}
             disabled={uploading}
             multiple
-            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.webp,.svg,.txt,.csv"
+            accept={ACCEPT_EXTENSIONS}
           />
         </label>
       )}

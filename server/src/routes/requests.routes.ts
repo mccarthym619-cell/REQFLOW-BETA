@@ -48,13 +48,13 @@ const createRequestSchema = z.object({
   template_id: z.number().int().positive(),
   title: z.string().max(500).optional(),
   priority: z.enum(['low', 'normal', 'high', 'urgent', 'critical', 'essential', 'enhancing']).optional(),
-  field_values: z.record(z.string()).optional(),
+  field_values: z.record(z.string().max(10000)).optional(),
 });
 
 const updateRequestSchema = z.object({
   title: z.string().max(500).optional(),
   priority: z.enum(['low', 'normal', 'high', 'urgent', 'critical', 'essential', 'enhancing']).optional(),
-  field_values: z.record(z.string()).optional(),
+  field_values: z.record(z.string().max(10000)).optional(),
 });
 
 const approvalActionSchema = z.object({
@@ -91,16 +91,14 @@ router.get('/', (req: Request, res: Response) => {
     status: req.query.status as string | undefined,
     templateId: req.query.template_id ? parseInt(req.query.template_id as string, 10) : undefined,
     search: req.query.search as string | undefined,
+    command: req.query.command as string | undefined,
     page: req.query.page ? Math.max(1, parseInt(req.query.page as string, 10)) : 1,
     perPage: req.query.per_page ? Math.min(100, Math.max(1, parseInt(req.query.per_page as string, 10))) : 20,
     sort: req.query.sort as string | undefined,
     order: req.query.order as 'asc' | 'desc' | undefined,
+    userRole: user.role,
+    userId: user.id,
   };
-
-  // Role-based filtering: requester and viewer only see their own
-  if (user.role === 'requester' || user.role === 'viewer') {
-    filters.submittedBy = user.id;
-  }
 
   const result = requestsService.getRequests(filters);
   res.json({
@@ -171,21 +169,21 @@ router.get('/:id/approval-status', assertRequestAccess, (req: Request, res: Resp
   res.json({ data: steps });
 });
 
-// Approval actions — any user assigned to the active step can act (service layer validates assignment)
-router.post('/:id/approvals/approve', validateBody(approvalActionSchema), (req: Request, res: Response) => {
-  approvalsService.approveStep(parseInt(req.params.id, 10), req.user!.id, req.body.notes);
+// Approval actions — role-gated, then service layer validates step assignment
+router.post('/:id/approvals/approve', requireRole('admin', 'approver', 'n4', 'contracting', 'reviewer'), validateBody(approvalActionSchema), (req: Request, res: Response) => {
+  approvalsService.approveStep(parseInt(req.params.id, 10), req.user!.id, req.body.notes, req.ip, req.get('user-agent'));
   const steps = approvalsService.getApprovalSteps(parseInt(req.params.id, 10));
   res.json({ data: steps });
 });
 
-router.post('/:id/approvals/reject', validateBody(approvalActionSchema), (req: Request, res: Response) => {
-  approvalsService.rejectStep(parseInt(req.params.id, 10), req.user!.id, req.body.notes);
+router.post('/:id/approvals/reject', requireRole('admin', 'approver', 'n4', 'contracting', 'reviewer'), validateBody(approvalActionSchema), (req: Request, res: Response) => {
+  approvalsService.rejectStep(parseInt(req.params.id, 10), req.user!.id, req.body.notes, req.ip, req.get('user-agent'));
   const steps = approvalsService.getApprovalSteps(parseInt(req.params.id, 10));
   res.json({ data: steps });
 });
 
-router.post('/:id/approvals/return', validateBody(approvalActionSchema), (req: Request, res: Response) => {
-  approvalsService.returnStep(parseInt(req.params.id, 10), req.user!.id, req.body.notes);
+router.post('/:id/approvals/return', requireRole('admin', 'approver', 'n4', 'contracting', 'reviewer'), validateBody(approvalActionSchema), (req: Request, res: Response) => {
+  approvalsService.returnStep(parseInt(req.params.id, 10), req.user!.id, req.body.notes, req.ip, req.get('user-agent'));
   const steps = approvalsService.getApprovalSteps(parseInt(req.params.id, 10));
   res.json({ data: steps });
 });

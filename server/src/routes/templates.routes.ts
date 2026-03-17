@@ -22,9 +22,12 @@ const fieldSchema = z.object({
 const approvalStepSchema = z.object({
   step_order: z.number().int().positive(),
   step_name: z.string().min(1),
-  approver_type: z.enum(['role', 'specific_user']),
+  approver_type: z.enum(['role', 'specific_user', 'role_by_command']),
   approver_role: z.string().optional(),
   approver_user_id: z.number().optional(),
+  execution_mode: z.enum(['sequential', 'parallel']).optional(),
+  parallel_group: z.number().int().nullable().optional(),
+  condition: z.string().nullable().optional(),
 });
 
 const createTemplateSchema = z.object({

@@ -28,8 +28,8 @@ export function devAuth(req: Request, res: Response, next: NextFunction): void {
   const userId = req.headers['x-current-user-id'] as string;
 
   if (!userId) {
-    // Default to user 1 (admin) if no header provided in dev
-    const user = getUserById(1);
+    // Default to user 4 (requester) if no header provided in dev — least-privilege default
+    const user = getUserById(4);
     if (user) {
       req.user = user;
     }

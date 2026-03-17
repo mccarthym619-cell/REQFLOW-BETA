@@ -1,5 +1,6 @@
 import { getDb } from '../database/connection';
 import { sseService } from './sse.service';
+import { sanitizeHtml } from '../utils/sanitize';
 import type { Notification, NotificationType } from '@req-tracker/shared';
 
 interface CreateNotificationParams {
@@ -20,8 +21,8 @@ export function createNotification(params: CreateNotificationParams): Notificati
     params.userId,
     params.requestId ?? null,
     params.type,
-    params.title,
-    params.message,
+    sanitizeHtml(params.title),
+    sanitizeHtml(params.message),
     params.actionUrl ?? null,
   );
 

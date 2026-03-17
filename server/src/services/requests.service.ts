@@ -6,21 +6,99 @@ import { createNotification } from './notifications.service';
 import * as filesService from './files.service';
 import { isValidTransition } from '@req-tracker/shared';
 import { AppError } from '../middleware/errorHandler';
-import type { Request as ReqType, CreateRequestPayload, UpdateRequestPayload, RequestStatus } from '@req-tracker/shared';
+import { formatDateForDb } from '../utils/dateFormat';
+import { validateFieldValue } from '../utils/fieldValidation';
+import { logger } from '../config/logger';
+import type { Request as ReqType, CreateRequestPayload, UpdateRequestPayload, RequestStatus, ApprovalChainStep, StepCondition } from '@req-tracker/shared';
+import type Database from 'better-sqlite3';
+
+/**
+ * Evaluate a step condition against request field values.
+ * Returns true if the step should be included (condition met or no condition).
+ */
+function evaluateStepCondition(conditionJson: string | null, fieldValues: Record<string, string>): boolean {
+  if (!conditionJson) return true;
+  try {
+    const cond: StepCondition = JSON.parse(conditionJson);
+    const actual = fieldValues[cond.field];
+    switch (cond.operator) {
+      case 'equals': return actual === cond.value;
+      case 'not_equals': return actual !== cond.value;
+      case 'in': return cond.values?.includes(actual) ?? false;
+      case 'not_in': return !(cond.values?.includes(actual) ?? false);
+      default: return true;
+    }
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Resolve the assigned approver for an approval chain step.
+ * Supports 'specific_user', 'role', and 'role_by_command'.
+ */
+function resolveApprover(db: Database.Database, step: ApprovalChainStep, fieldValues: Record<string, string>): number | null {
+  if (step.approver_type === 'specific_user') {
+    return step.approver_user_id;
+  }
+
+  if (step.approver_type === 'role' && step.approver_role) {
+    const user = db.prepare('SELECT id FROM users WHERE role = ? AND is_active = 1 LIMIT 1').get(step.approver_role) as { id: number } | undefined;
+    return user?.id ?? null;
+  }
+
+  if (step.approver_type === 'role_by_command' && step.approver_role) {
+    const requestCommand = fieldValues.command;
+    if (requestCommand) {
+      const cmd = db.prepare('SELECT id FROM commands WHERE name = ?').get(requestCommand) as { id: number } | undefined;
+      if (cmd) {
+        // Try to find a user with the role in the request's command
+        const user = db.prepare('SELECT id FROM users WHERE role = ? AND command_id = ? AND is_active = 1 LIMIT 1').get(step.approver_role, cmd.id) as { id: number } | undefined;
+        if (user) return user.id;
+
+        // Fall back to parent command (NSWG-8) user
+        const parentUser = db.prepare(`
+          SELECT u.id FROM users u
+          JOIN commands c ON c.id = u.command_id
+          WHERE u.role = ? AND c.is_parent = 1 AND u.is_active = 1
+          LIMIT 1
+        `).get(step.approver_role) as { id: number } | undefined;
+        return parentUser?.id ?? null;
+      }
+    }
+    // Fallback: any user with the role
+    const user = db.prepare('SELECT id FROM users WHERE role = ? AND is_active = 1 LIMIT 1').get(step.approver_role) as { id: number } | undefined;
+    return user?.id ?? null;
+  }
+
+  return null;
+}
 
 export function getRequests(filters: {
   status?: string;
   templateId?: number;
   submittedBy?: number;
   search?: string;
+  command?: string;
   page?: number;
   perPage?: number;
   sort?: string;
   order?: 'asc' | 'desc';
+  userRole?: string;
+  userId?: number;
 }): { requests: ReqType[]; total: number } {
   const db = getDb();
   const conditions: string[] = [];
   const params: unknown[] = [];
+
+  // Role-based filtering: requester and viewer only see their own requests
+  if ((filters.userRole === 'requester' || filters.userRole === 'viewer') && filters.userId) {
+    conditions.push('r.submitted_by = ?');
+    params.push(filters.userId);
+  } else if (filters.submittedBy) {
+    conditions.push('r.submitted_by = ?');
+    params.push(filters.submittedBy);
+  }
 
   if (filters.status) {
     conditions.push('r.status = ?');
@@ -30,13 +108,17 @@ export function getRequests(filters: {
     conditions.push('r.template_id = ?');
     params.push(filters.templateId);
   }
-  if (filters.submittedBy) {
-    conditions.push('r.submitted_by = ?');
-    params.push(filters.submittedBy);
-  }
   if (filters.search) {
     conditions.push('(r.title LIKE ? OR r.reference_number LIKE ?)');
     params.push(`%${filters.search}%`, `%${filters.search}%`);
+  }
+  if (filters.command) {
+    conditions.push(`r.id IN (
+      SELECT cfv.request_id FROM custom_field_values cfv
+      JOIN custom_field_definitions cfd ON cfd.id = cfv.field_def_id
+      WHERE cfd.field_name = 'command' AND cfv.field_value = ?
+    )`);
+    params.push(filters.command);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -83,37 +165,56 @@ export function getRequestById(id: number): ReqType | undefined {
       WHERE cfv.request_id = ?
     `).all(id) as { field_name: string; field_type: string; field_value: string }[];
 
+    // Collect all file IDs for batch fetching (avoid N+1 queries)
+    const allFileIds: number[] = [];
+    for (const fv of fieldValues) {
+      if (fv.field_type === 'file' && fv.field_value) {
+        const parsed = parseInt(fv.field_value, 10);
+        if (!isNaN(parsed)) allFileIds.push(parsed);
+      }
+      if (fv.field_type === 'multi_file' && fv.field_value) {
+        try {
+          const ids: number[] = JSON.parse(fv.field_value);
+          allFileIds.push(...ids);
+        } catch {
+          logger.warn({ requestId: id, fieldName: fv.field_name }, 'Failed to parse multi_file field value as JSON');
+        }
+      }
+    }
+    const fileRecords = filesService.getFilesByIds(allFileIds);
+    const fileMap = new Map(fileRecords.map(f => [f.id, f]));
+
     request.field_values = {};
     (request as any).file_fields = {};
     for (const fv of fieldValues) {
       request.field_values[fv.field_name] = fv.field_value;
-      // For file fields, look up the uploaded_files record to provide metadata
       if (fv.field_type === 'file' && fv.field_value) {
-        const fileRecord = filesService.getFileById(parseInt(fv.field_value, 10));
-        if (fileRecord) {
+        const rec = fileMap.get(parseInt(fv.field_value, 10));
+        if (rec) {
           (request as any).file_fields[fv.field_name] = {
-            file_id: fileRecord.id,
-            original_name: fileRecord.original_name,
-            mime_type: fileRecord.mime_type,
-            size_bytes: fileRecord.size_bytes,
+            file_id: rec.id,
+            original_name: rec.original_name,
+            mime_type: rec.mime_type,
+            size_bytes: rec.size_bytes,
           };
         }
       }
-      // For multi_file fields, look up all file IDs in the JSON array
       if (fv.field_type === 'multi_file' && fv.field_value) {
         try {
           const fileIds: number[] = JSON.parse(fv.field_value);
-          const fileRecords = fileIds.map((fileId) => {
-            const rec = filesService.getFileById(fileId);
-            return rec ? {
-              file_id: rec.id,
-              original_name: rec.original_name,
-              mime_type: rec.mime_type,
-              size_bytes: rec.size_bytes,
-            } : null;
-          }).filter(Boolean);
-          (request as any).file_fields[fv.field_name] = fileRecords;
-        } catch { /* ignore parse errors */ }
+          const records = fileIds
+            .map(fid => fileMap.get(fid))
+            .filter(Boolean)
+            .map(rec => ({
+              file_id: rec!.id,
+              original_name: rec!.original_name,
+              mime_type: rec!.mime_type,
+              size_bytes: rec!.size_bytes,
+            }));
+          (request as any).file_fields[fv.field_name] = records;
+        } catch {
+          logger.warn({ requestId: id, fieldName: fv.field_name }, 'Failed to parse multi_file field value as JSON');
+        }
       }
     }
   }
@@ -155,6 +256,8 @@ export function createRequest(payload: CreateRequestPayload, userId: number): Re
       for (const field of template.fields) {
         const value = payload.field_values[field.field_name];
         if (value !== undefined) {
+          validateFieldValue(field.field_type, value, field.field_name, field.options ? JSON.stringify(field.options) : null);
+
           let filePath: string | null = null;
           if (field.field_type === 'file' && value) {
             const fileRecord = filesService.getFileById(parseInt(value, 10));
@@ -173,7 +276,7 @@ export function createRequest(payload: CreateRequestPayload, userId: number): Re
                   filesService.linkFileToRequest(fileRecord.id, requestId, field.id);
                 }
               }
-            } catch { /* ignore parse errors */ }
+            } catch (err) { logger.warn({ fieldName: field.field_name, err }, 'Failed to parse multi_file field value'); }
           }
           insertValue.run(requestId, field.id, value, filePath);
         }
@@ -230,6 +333,8 @@ export function updateRequest(id: number, payload: UpdateRequestPayload, userId:
         for (const field of template.fields) {
           const value = payload.field_values[field.field_name];
           if (value !== undefined) {
+            validateFieldValue(field.field_type, value, field.field_name, field.options ? JSON.stringify(field.options) : null);
+
             let filePath: string | null = null;
             if (field.field_type === 'file' && value) {
               const fileRecord = filesService.getFileById(parseInt(value, 10));
@@ -248,7 +353,7 @@ export function updateRequest(id: number, payload: UpdateRequestPayload, userId:
                     filesService.linkFileToRequest(fileRecord.id, id, field.id);
                   }
                 }
-              } catch { /* ignore parse errors */ }
+              } catch (err) { logger.warn({ fieldName: field.field_name, err }, 'Failed to parse multi_file field value'); }
             }
             upsertValue.run(id, field.id, value, filePath);
           }
@@ -288,10 +393,11 @@ export function submitRequest(id: number, userId: number): ReqType {
 
   const template = getTemplateById(request.template_id);
   if (!template) throw new AppError(500, 'INTERNAL', 'Template not found');
+  if (!template.is_active) throw new AppError(400, 'INVALID_TEMPLATE', 'Template is no longer active');
 
   db.transaction(() => {
-    const now = new Date().toISOString().replace('T', ' ').split('.')[0];
     const submitDate = new Date();
+    const now = formatDateForDb(submitDate);
 
     // Generate final reference number from command + request type
     const command = request.field_values?.command ?? '';
@@ -308,7 +414,7 @@ export function submitRequest(id: number, userId: number): ReqType {
       (db.prepare("SELECT value FROM system_settings WHERE key = 'sla_default_hours'").get() as { value: string })?.value ?? '72',
       10
     );
-    const slaDeadline = new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString().replace('T', ' ').split('.')[0];
+    const slaDeadline = formatDateForDb(new Date(Date.now() + slaHours * 60 * 60 * 1000));
 
     if (template.approval_chain.length === 0) {
       // No approval chain -> auto-approve
@@ -335,63 +441,75 @@ export function submitRequest(id: number, userId: number): ReqType {
         metadata: { reason: 'No approval chain configured' },
       });
     } else {
-      // Create approval steps
-      const insertStep = db.prepare(`
-        INSERT INTO request_approval_steps (request_id, chain_step_id, step_order, status, assigned_to)
-        VALUES (?, ?, ?, ?, ?)
-      `);
+      // Filter steps by condition evaluation
+      const fieldValues = request.field_values ?? {};
+      const applicableSteps = template.approval_chain.filter(step =>
+        evaluateStepCondition(step.condition, fieldValues)
+      );
 
-      for (const step of template.approval_chain) {
-        let assignedTo: number | null = null;
-        if (step.approver_type === 'specific_user') {
-          assignedTo = step.approver_user_id;
-        } else if (step.approver_type === 'role' && step.approver_role) {
-          // Find first active user with the role
-          const user = db.prepare('SELECT id FROM users WHERE role = ? AND is_active = 1 LIMIT 1').get(step.approver_role) as { id: number } | undefined;
-          assignedTo = user?.id ?? null;
+      if (applicableSteps.length === 0) {
+        // All steps filtered out by conditions -> auto-approve
+        db.prepare(`
+          UPDATE requests SET status = 'approved', submitted_at = ?, completed_at = ?, sla_deadline = ?, updated_at = datetime('now')
+          WHERE id = ?
+        `).run(now, now, slaDeadline, id);
+
+        createAuditEntry({ entityType: 'request', entityId: id, requestId: id, action: 'submitted', performedBy: userId });
+        createAuditEntry({ entityType: 'request', entityId: id, requestId: id, action: 'status_changed', oldValue: request.status, newValue: 'approved', performedBy: userId, metadata: { reason: 'All approval steps filtered by conditions' } });
+      } else {
+        // Create approval steps
+        const insertStep = db.prepare(`
+          INSERT INTO request_approval_steps (request_id, chain_step_id, step_order, status, assigned_to)
+          VALUES (?, ?, ?, ?, ?)
+        `);
+
+        // Determine which steps should be initially active:
+        // - First sequential step, OR all parallel steps in the first parallel group
+        const firstStep = applicableSteps[0];
+        const firstGroup = firstStep.parallel_group;
+        const isFirstGroupParallel = firstStep.execution_mode === 'parallel' && firstGroup != null;
+
+        for (const step of applicableSteps) {
+          const assignedTo = resolveApprover(db, step, fieldValues);
+
+          let status: string;
+          if (isFirstGroupParallel) {
+            // Activate all steps in the first parallel group
+            status = (step.execution_mode === 'parallel' && step.parallel_group === firstGroup) ? 'active' : 'pending';
+          } else {
+            status = step.step_order === firstStep.step_order ? 'active' : 'pending';
+          }
+
+          insertStep.run(id, step.id, step.step_order, status, assignedTo);
         }
-        const status = step.step_order === template.approval_chain[0].step_order ? 'active' : 'pending';
-        insertStep.run(id, step.id, step.step_order, status, assignedTo);
-      }
 
-      db.prepare(`
-        UPDATE requests SET status = 'pending_approval', submitted_at = ?, current_step_order = ?, sla_deadline = ?, updated_at = datetime('now')
-        WHERE id = ?
-      `).run(now, template.approval_chain[0].step_order, slaDeadline, id);
+        db.prepare(`
+          UPDATE requests SET status = 'pending_approval', submitted_at = ?, current_step_order = ?, sla_deadline = ?, updated_at = datetime('now')
+          WHERE id = ?
+        `).run(now, firstStep.step_order, slaDeadline, id);
 
-      createAuditEntry({
-        entityType: 'request',
-        entityId: id,
-        requestId: id,
-        action: 'submitted',
-        performedBy: userId,
-      });
-      createAuditEntry({
-        entityType: 'request',
-        entityId: id,
-        requestId: id,
-        action: 'status_changed',
-        oldValue: request.status,
-        newValue: 'pending_approval',
-        performedBy: userId,
-      });
+        createAuditEntry({ entityType: 'request', entityId: id, requestId: id, action: 'submitted', performedBy: userId });
+        createAuditEntry({ entityType: 'request', entityId: id, requestId: id, action: 'status_changed', oldValue: request.status, newValue: 'pending_approval', performedBy: userId });
 
-      // Notify first approver
-      const firstStep = db.prepare(`
-        SELECT ras.*, acs.step_name FROM request_approval_steps ras
-        JOIN approval_chain_steps acs ON acs.id = ras.chain_step_id
-        WHERE ras.request_id = ? AND ras.status = 'active'
-      `).get(id) as { assigned_to: number; step_name: string } | undefined;
+        // Notify all initially active approvers
+        const activeSteps = db.prepare(`
+          SELECT ras.assigned_to, acs.step_name FROM request_approval_steps ras
+          JOIN approval_chain_steps acs ON acs.id = ras.chain_step_id
+          WHERE ras.request_id = ? AND ras.status = 'active'
+        `).all(id) as { assigned_to: number | null; step_name: string }[];
 
-      if (firstStep?.assigned_to) {
-        createNotification({
-          userId: firstStep.assigned_to,
-          requestId: id,
-          type: 'approval_needed',
-          title: 'Approval Required',
-          message: `Request ${request.reference_number} "${request.title}" requires your approval (${firstStep.step_name})`,
-          actionUrl: `/requests/${id}`,
-        });
+        for (const activeStep of activeSteps) {
+          if (activeStep.assigned_to) {
+            createNotification({
+              userId: activeStep.assigned_to,
+              requestId: id,
+              type: 'approval_needed',
+              title: 'Approval Required',
+              message: `Request ${finalRefNum} requires your approval (${activeStep.step_name})`,
+              actionUrl: `/requests/${id}`,
+            });
+          }
+        }
       }
     }
   })();
@@ -439,7 +557,7 @@ export function completeRequest(id: number, userId: number, trackingComment?: st
   }
 
   db.transaction(() => {
-    const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+    const now = formatDateForDb();
     db.prepare("UPDATE requests SET status = 'completed', completed_at = ?, updated_at = datetime('now') WHERE id = ?").run(now, id);
 
     createAuditEntry({

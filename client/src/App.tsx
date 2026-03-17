@@ -19,6 +19,7 @@ import { SystemSettingsPage } from './pages/Admin/Settings/SystemSettingsPage';
 import { UserSettingsPage } from './pages/Settings/UserSettingsPage';
 import { LoginPage } from './pages/Auth/LoginPage';
 import { LoadingSpinner } from './components/shared/LoadingSpinner';
+import { Toaster } from 'react-hot-toast';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -79,6 +80,7 @@ export function App() {
           <AppContent />
         </SessionProvider>
       </BrowserRouter>
+      <Toaster position="top-right" />
       </ThemeProvider>
     </QueryClientProvider>
   );

@@ -8,11 +8,13 @@ import auditRouter from './audit.routes';
 import dashboardRouter from './dashboard.routes';
 import settingsRouter from './settings.routes';
 import filesRouter from './files.routes';
+import registrationsRouter from './registrations.routes';
 
 const router = Router();
 
 router.use('/auth', authRouter);
 router.use('/users', usersRouter);
+router.use('/admin/registrations', registrationsRouter);
 router.use('/templates', templatesRouter);
 router.use('/requests', requestsRouter);
 router.use('/notifications', notificationsRouter);

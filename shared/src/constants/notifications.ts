@@ -9,4 +9,5 @@ export const NOTIFICATION_LABELS: Record<NotificationType, string> = {
   sla_warning: 'SLA Warning',
   nudge_received: 'Action Requested',
   nudge_acknowledged: 'Nudge Acknowledged',
+  registration_request: 'Registration Request',
 };

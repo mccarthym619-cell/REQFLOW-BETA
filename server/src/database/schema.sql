@@ -4,6 +4,17 @@ PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 
 -- ============================================================
+-- COMMANDS (reference data)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS commands (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT    NOT NULL UNIQUE,
+    code            TEXT    NOT NULL UNIQUE,
+    is_parent       INTEGER NOT NULL DEFAULT 0,
+    is_active       INTEGER NOT NULL DEFAULT 1
+);
+
+-- ============================================================
 -- USERS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS users (
@@ -13,10 +24,14 @@ CREATE TABLE IF NOT EXISTS users (
     role            TEXT    NOT NULL CHECK (role IN ('admin', 'approver', 'n4', 'contracting', 'reviewer', 'requester', 'viewer')),
     password_hash   TEXT    DEFAULT NULL,
     timezone        TEXT    NOT NULL DEFAULT 'UTC',
+    command_id      INTEGER REFERENCES commands(id),
     is_active       INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_command ON users(command_id);
+CREATE INDEX IF NOT EXISTS idx_users_role_command ON users(role, command_id, is_active);
 
 -- ============================================================
 -- REQUEST TEMPLATES
@@ -69,9 +84,12 @@ CREATE TABLE IF NOT EXISTS approval_chain_steps (
     template_id     INTEGER NOT NULL REFERENCES request_templates(id) ON DELETE CASCADE,
     step_order      INTEGER NOT NULL,
     step_name       TEXT    NOT NULL,
-    approver_type   TEXT    NOT NULL CHECK (approver_type IN ('role', 'specific_user')),
+    approver_type   TEXT    NOT NULL CHECK (approver_type IN ('role', 'specific_user', 'role_by_command')),
     approver_role   TEXT,
     approver_user_id INTEGER REFERENCES users(id),
+    execution_mode  TEXT    NOT NULL DEFAULT 'sequential' CHECK (execution_mode IN ('sequential', 'parallel')),
+    parallel_group  INTEGER DEFAULT NULL,
+    condition       TEXT    DEFAULT NULL,
     is_active       INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
@@ -169,6 +187,7 @@ CREATE TABLE IF NOT EXISTS request_approval_steps (
 CREATE INDEX IF NOT EXISTS idx_ras_request ON request_approval_steps(request_id);
 CREATE INDEX IF NOT EXISTS idx_ras_assigned ON request_approval_steps(assigned_to, status);
 CREATE INDEX IF NOT EXISTS idx_ras_acted_by ON request_approval_steps(acted_on_by);
+CREATE INDEX IF NOT EXISTS idx_ras_request_status ON request_approval_steps(request_id, status);
 
 -- ============================================================
 -- COMMENTS
@@ -266,3 +285,24 @@ CREATE TABLE IF NOT EXISTS sequence_counters (
     prefix          TEXT    PRIMARY KEY,
     current_value   INTEGER NOT NULL DEFAULT 0
 );
+
+-- ============================================================
+-- REGISTRATION REQUESTS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS registration_requests (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    email           TEXT    NOT NULL,
+    display_name    TEXT    NOT NULL,
+    command_id      INTEGER REFERENCES commands(id),
+    justification   TEXT,
+    status          TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
+    reviewed_by     INTEGER REFERENCES users(id),
+    reviewed_at     TEXT,
+    assigned_role   TEXT,
+    denial_reason   TEXT,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_reg_requests_status ON registration_requests(status);
+CREATE INDEX IF NOT EXISTS idx_reg_requests_email ON registration_requests(email);

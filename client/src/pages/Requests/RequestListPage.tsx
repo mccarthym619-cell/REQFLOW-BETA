@@ -1,50 +1,30 @@
-import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { api } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { StatusBadge } from '../../components/shared/StatusBadge';
 import { PriorityBadge } from '../../components/shared/PriorityBadge';
 import { LoadingSpinner } from '../../components/shared/LoadingSpinner';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { Plus } from 'lucide-react';
-import { hasPermission } from '@req-tracker/shared';
+import { hasPermission, STANDARD_FIELDS } from '@req-tracker/shared';
 import { formatRelative } from '../../utils/dateFormat';
-import type { Request as ReqType, RequestStatus, UserRole } from '@req-tracker/shared';
+import { useRequests } from '../../api/queries/useRequests';
+import type { RequestStatus, UserRole } from '@req-tracker/shared';
+
+const commandOptions = STANDARD_FIELDS.find(f => f.field_name === 'command')?.options ?? [];
 
 export function RequestListPage() {
   const { currentUser } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [requests, setRequests] = useState<ReqType[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
 
   const status = searchParams.get('status') ?? '';
+  const command = searchParams.get('command') ?? '';
   const search = searchParams.get('search') ?? '';
   const page = parseInt(searchParams.get('page') ?? '1', 10);
   const canCreate = hasPermission((currentUser?.role ?? 'viewer') as UserRole, 'requests.create');
 
-  useEffect(() => {
-    loadRequests();
-  }, [status, search, page]);
-
-  async function loadRequests() {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (status) params.set('status', status);
-      if (search) params.set('search', search);
-      params.set('page', String(page));
-      params.set('per_page', '20');
-
-      const res = await api.get(`/requests?${params}`);
-      setRequests(res.data.data);
-      setTotal(res.data.meta.total);
-    } catch (err) {
-      console.error('Failed to load requests:', err);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const { data, isLoading } = useRequests({ status: status || undefined, command: command || undefined, search: search || undefined, page });
+  const requests = data?.data ?? [];
+  const total = data?.meta?.total ?? 0;
 
   const statuses: (RequestStatus | '')[] = ['', 'draft', 'submitted', 'pending_approval', 'approved', 'rejected', 'returned', 'completed'];
 
@@ -60,7 +40,7 @@ export function RequestListPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         {statuses.map(s => (
           <button
             key={s}
@@ -72,14 +52,29 @@ export function RequestListPage() {
             {s === '' ? 'All' : s.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
           </button>
         ))}
+        <select
+          value={command}
+          onChange={(e) => setSearchParams(prev => {
+            if (e.target.value) prev.set('command', e.target.value);
+            else prev.delete('command');
+            prev.delete('page');
+            return prev;
+          })}
+          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700"
+        >
+          <option value="">All Commands</option>
+          {commandOptions.map(cmd => (
+            <option key={cmd} value={cmd}>{cmd}</option>
+          ))}
+        </select>
       </div>
 
-      {loading ? (
+      {isLoading ? (
         <LoadingSpinner />
       ) : requests.length === 0 ? (
         <EmptyState
           title="No requests found"
-          description={status || search ? 'Try adjusting your filters' : canCreate ? 'Create your first request to get started' : 'No requests to display'}
+          description={status || search || command ? 'Try adjusting your filters' : canCreate ? 'Create your first request to get started' : 'No requests to display'}
           action={canCreate ? (
             <Link to="/requests/new" className="btn-primary">
               <Plus className="w-4 h-4" /> New Request

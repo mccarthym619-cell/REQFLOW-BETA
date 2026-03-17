@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react';
 import { api } from '../../api/client';
 import { Paperclip, X, Upload, AlertCircle, Loader2 } from 'lucide-react';
+import { isAllowedFileType, ACCEPT_EXTENSIONS } from '../../utils/fileValidation';
+import { showError } from '../../utils/toast';
 
 interface FileInfo {
   file_id: number;
@@ -39,6 +41,12 @@ export function FileUploadInput({ fieldName, value, onChange, existingFile }: Fi
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (!isAllowedFileType(file)) {
+      showError(`File type "${file.type || 'unknown'}" is not allowed. Use PDF, images, Word, Excel, PowerPoint, CSV, or plain text.`);
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
 
     setError('');
     setUploading(true);
@@ -115,7 +123,7 @@ export function FileUploadInput({ fieldName, value, onChange, existingFile }: Fi
           className="hidden"
           onChange={handleFileSelect}
           disabled={uploading}
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.webp,.svg,.txt,.csv"
+          accept={ACCEPT_EXTENSIONS}
         />
       </label>
       {error && (

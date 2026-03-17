@@ -37,6 +37,34 @@ export function runMigrations(): void {
     if (!e.message.includes('duplicate column')) throw e;
   }
 
+  // Migration: add command_id column to existing databases
+  try {
+    db.exec('ALTER TABLE users ADD COLUMN command_id INTEGER REFERENCES commands(id)');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+
+  // Ensure indexes exist for command-related queries
+  db.exec('CREATE INDEX IF NOT EXISTS idx_users_command ON users(command_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_users_role_command ON users(role, command_id, is_active)');
+
+  // Migration: add execution_mode, parallel_group, condition to approval_chain_steps
+  try {
+    db.exec("ALTER TABLE approval_chain_steps ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'sequential'");
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+  try {
+    db.exec('ALTER TABLE approval_chain_steps ADD COLUMN parallel_group INTEGER DEFAULT NULL');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+  try {
+    db.exec('ALTER TABLE approval_chain_steps ADD COLUMN condition TEXT DEFAULT NULL');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+
   const seed = fs.readFileSync(path.join(__dirname, 'seed.sql'), 'utf-8');
   db.exec(seed);
 

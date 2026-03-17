@@ -6,7 +6,8 @@ export type NotificationType =
   | 'request_submitted'
   | 'sla_warning'
   | 'nudge_received'
-  | 'nudge_acknowledged';
+  | 'nudge_acknowledged'
+  | 'registration_request';
 
 export interface Notification {
   id: number;

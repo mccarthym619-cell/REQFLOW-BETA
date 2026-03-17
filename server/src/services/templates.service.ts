@@ -72,11 +72,11 @@ export function createTemplate(payload: CreateTemplatePayload, performedBy: numb
     // Create approval chain
     if (payload.approval_chain?.length) {
       const insertStep = db.prepare(`
-        INSERT INTO approval_chain_steps (template_id, step_order, step_name, approver_type, approver_role, approver_user_id)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO approval_chain_steps (template_id, step_order, step_name, approver_type, approver_role, approver_user_id, execution_mode, parallel_group, condition)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const step of payload.approval_chain) {
-        insertStep.run(templateId, step.step_order, step.step_name, step.approver_type, step.approver_role ?? null, step.approver_user_id ?? null);
+        insertStep.run(templateId, step.step_order, step.step_name, step.approver_type, step.approver_role ?? null, step.approver_user_id ?? null, step.execution_mode ?? 'sequential', step.parallel_group ?? null, step.condition ?? null);
       }
     }
 
@@ -236,9 +236,9 @@ export function reorderFields(templateId: number, fieldIds: number[], performedB
 export function addApprovalStep(templateId: number, payload: CreateApprovalStepPayload, performedBy: number): ApprovalChainStep {
   const db = getDb();
   const result = db.prepare(`
-    INSERT INTO approval_chain_steps (template_id, step_order, step_name, approver_type, approver_role, approver_user_id)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(templateId, payload.step_order, payload.step_name, payload.approver_type, payload.approver_role ?? null, payload.approver_user_id ?? null);
+    INSERT INTO approval_chain_steps (template_id, step_order, step_name, approver_type, approver_role, approver_user_id, execution_mode, parallel_group, condition)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(templateId, payload.step_order, payload.step_name, payload.approver_type, payload.approver_role ?? null, payload.approver_user_id ?? null, payload.execution_mode ?? 'sequential', payload.parallel_group ?? null, payload.condition ?? null);
 
   createAuditEntry({
     entityType: 'template',

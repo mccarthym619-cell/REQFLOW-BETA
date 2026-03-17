@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { config } from '../config/env';
 import { validateBody } from '../middleware/validateBody';
-import { getUserByEmailWithPassword, setPasswordHash } from '../services/users.service';
+import { getUserByEmailWithPassword, setPasswordHash, getAllCommands } from '../services/users.service';
+import { createRegistration } from '../services/registrations.service';
 import { hashPassword, verifyPassword } from '../utils/password';
 import { createAuditEntry } from '../services/audit.service';
 
@@ -38,9 +39,10 @@ router.post('/check-email', validateBody(checkEmailSchema), (req: Request, res: 
   const user = getUserByEmailWithPassword(email);
 
   if (!user || !user.is_active) {
-    // Don't reveal whether email exists
-    res.status(401).json({
-      error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or account not found' },
+    res.json({
+      data: {
+        exists: false,
+      },
     });
     return;
   }
@@ -168,6 +170,19 @@ router.get('/check', (req: Request, res: Response) => {
     res.clearCookie('session_token');
     res.status(401).json({ data: { authenticated: false } });
   }
+});
+
+/** POST /api/auth/register — request access (public, rate-limited) */
+const registerSchema = z.object({
+  email: z.string().email(),
+  display_name: z.string().min(1).max(200),
+  command_id: z.number().int().positive().optional(),
+  justification: z.string().max(1000).optional(),
+});
+
+router.post('/register', validateBody(registerSchema), (req: Request, res: Response) => {
+  const reg = createRegistration(req.body);
+  res.status(201).json({ data: reg });
 });
 
 /** POST /api/auth/logout — clear session cookie */

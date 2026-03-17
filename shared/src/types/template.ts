@@ -52,14 +52,26 @@ export interface CreateFieldPayload {
   validation_rules?: ValidationRules;
 }
 
+export type ApproverType = 'role' | 'specific_user' | 'role_by_command';
+
+export interface StepCondition {
+  field: string;
+  operator: 'equals' | 'not_equals' | 'in' | 'not_in';
+  value?: string;
+  values?: string[];
+}
+
 export interface ApprovalChainStep {
   id: number;
   template_id: number;
   step_order: number;
   step_name: string;
-  approver_type: 'role' | 'specific_user';
+  approver_type: ApproverType;
   approver_role: string | null;
   approver_user_id: number | null;
+  execution_mode: 'sequential' | 'parallel';
+  parallel_group: number | null;
+  condition: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -68,9 +80,12 @@ export interface ApprovalChainStep {
 export interface CreateApprovalStepPayload {
   step_order: number;
   step_name: string;
-  approver_type: 'role' | 'specific_user';
+  approver_type: ApproverType;
   approver_role?: string;
   approver_user_id?: number;
+  execution_mode?: 'sequential' | 'parallel';
+  parallel_group?: number;
+  condition?: string | null;
 }
 
 export interface RequestTemplate {

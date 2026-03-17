@@ -37,6 +37,13 @@ export function getFileById(id: number): UploadedFile | undefined {
   return db.prepare('SELECT * FROM uploaded_files WHERE id = ?').get(id) as UploadedFile | undefined;
 }
 
+export function getFilesByIds(ids: number[]): UploadedFile[] {
+  if (ids.length === 0) return [];
+  const db = getDb();
+  const placeholders = ids.map(() => '?').join(',');
+  return db.prepare(`SELECT * FROM uploaded_files WHERE id IN (${placeholders})`).all(...ids) as UploadedFile[];
+}
+
 export function linkFileToRequest(fileId: number, requestId: number, fieldDefId: number): void {
   const db = getDb();
   db.prepare('UPDATE uploaded_files SET request_id = ?, field_def_id = ? WHERE id = ?')

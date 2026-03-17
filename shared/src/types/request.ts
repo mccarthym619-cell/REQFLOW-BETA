@@ -57,6 +57,8 @@ export interface RequestApprovalStep {
   created_at: string;
   updated_at: string;
   step_name?: string;
+  execution_mode?: 'sequential' | 'parallel';
+  parallel_group?: number | null;
   assigned_to_name?: string;
   acted_on_by_name?: string;
 }

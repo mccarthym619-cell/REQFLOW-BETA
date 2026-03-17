@@ -1,6 +1,4 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { StatusBadge } from '../../components/shared/StatusBadge';
 import { PriorityBadge } from '../../components/shared/PriorityBadge';
@@ -9,48 +7,25 @@ import { Clock, Package } from 'lucide-react';
 import { STATUS_LABELS } from '@req-tracker/shared';
 import type { RequestStatus } from '@req-tracker/shared';
 import { formatRelative } from '../../utils/dateFormat';
+import { useDashboardSummary, useDashboardPending, useDashboardActivity, useDashboardAwaitingCompletion } from '../../api/queries/useDashboard';
 
 export function DashboardPage() {
   const { currentUser } = useAuth();
-  const [summary, setSummary] = useState<any>(null);
-  const [pending, setPending] = useState<any[]>([]);
-  const [activity, setActivity] = useState<any[]>([]);
-  const [awaitingCompletion, setAwaitingCompletion] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const isN4 = currentUser?.role === 'n4' || currentUser?.role === 'admin';
   const isRequester = currentUser?.role === 'requester';
 
-  useEffect(() => {
-    loadDashboard();
-  }, [currentUser?.id]);
+  const summaryQuery = useDashboardSummary();
+  const pendingQuery = useDashboardPending();
+  const activityQuery = useDashboardActivity();
+  const awaitingQuery = useDashboardAwaitingCompletion(isN4);
 
-  async function loadDashboard() {
-    try {
-      const fetches: Promise<any>[] = [
-        api.get('/dashboard/summary'),
-        api.get('/dashboard/my-pending'),
-        api.get('/dashboard/recent-activity?limit=15'),
-      ];
-      if (isN4) {
-        fetches.push(api.get('/dashboard/awaiting-completion'));
-      }
-      const results = await Promise.all(fetches);
-      setSummary(results[0].data.data);
-      setPending(results[1].data.data);
-      setActivity(results[2].data.data);
-      if (isN4 && results[3]) {
-        setAwaitingCompletion(results[3].data.data);
-      } else {
-        setAwaitingCompletion([]);
-      }
-    } catch (err) {
-      console.error('Dashboard load failed:', err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
+  const loading = summaryQuery.isLoading || pendingQuery.isLoading || activityQuery.isLoading;
   if (loading) return <LoadingSpinner />;
+
+  const summary = summaryQuery.data;
+  const pending = pendingQuery.data ?? [];
+  const activity = activityQuery.data ?? [];
+  const awaitingCompletion = awaitingQuery.data ?? [];
 
   const statuses: RequestStatus[] = ['draft', 'pending_approval', 'approved', 'rejected', 'completed'];
 
@@ -68,7 +43,7 @@ export function DashboardPage() {
             <p className="p-4 text-sm text-gray-500 text-center">No pending actions</p>
           ) : (
             <div className="divide-y divide-gray-50 dark:divide-gray-800">
-              {pending.map((item: any) => (
+              {pending.map(item => (
                 <Link
                   key={item.id}
                   to={`/requests/${item.id}`}
@@ -118,7 +93,7 @@ export function DashboardPage() {
             </span>
           </div>
           <div className="divide-y divide-gray-50 dark:divide-gray-800 max-h-72 overflow-y-auto">
-            {awaitingCompletion.map((item: any) => (
+            {awaitingCompletion.map(item => (
               <Link
                 key={item.id}
                 to={`/requests/${item.id}`}
@@ -155,7 +130,7 @@ export function DashboardPage() {
               <p className="p-4 text-sm text-gray-500 text-center">No pending actions</p>
             ) : (
               <div className="divide-y divide-gray-50 dark:divide-gray-800">
-                {pending.map((item: any) => (
+                {pending.map(item => (
                   <Link
                     key={item.id}
                     to={`/requests/${item.id}`}
@@ -187,7 +162,7 @@ export function DashboardPage() {
             <p className="p-4 text-sm text-gray-500 text-center">No recent activity</p>
           ) : (
             <div className="divide-y divide-gray-50 dark:divide-gray-800 max-h-96 overflow-y-auto">
-              {activity.map((item: any) => (
+              {activity.map(item => (
                 <div key={item.id} className="p-4">
                   <div className="flex items-start gap-3">
                     <Clock className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />

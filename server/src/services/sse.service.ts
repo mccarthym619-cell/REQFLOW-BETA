@@ -48,8 +48,16 @@ class SSEService {
   pushToUser(userId: number, event: string, data: unknown): void {
     const conns = this.connections.get(userId) || [];
     const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    const failed: Response[] = [];
     for (const res of conns) {
-      res.write(payload);
+      try {
+        res.write(payload);
+      } catch {
+        failed.push(res);
+      }
+    }
+    for (const res of failed) {
+      this.removeConnection(userId, res);
     }
   }
 

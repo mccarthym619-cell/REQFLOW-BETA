@@ -1,4 +1,4 @@
-export type EntityType = 'request' | 'template' | 'user' | 'approval_step' | 'comment' | 'nudge';
+export type EntityType = 'request' | 'template' | 'user' | 'approval_step' | 'comment' | 'nudge' | 'registration';
 
 export type AuditAction =
   | 'created'
@@ -19,7 +19,8 @@ export type AuditAction =
   | 'user_login'
   | 'user_logout'
   | 'password_set'
-  | 'password_reset';
+  | 'password_reset'
+  | 'denied';
 
 export interface AuditEntry {
   id: number;
