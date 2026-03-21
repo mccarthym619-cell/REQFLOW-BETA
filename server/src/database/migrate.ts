@@ -131,31 +131,43 @@ export function runMigrations(): void {
 
   if (hasOldRoleCheck) {
     logger.info('Migrating users table to new role CHECK constraint...');
-    db.exec(`
-      -- Recreate users table with new CHECK constraint
-      CREATE TABLE users_new (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        email           TEXT    NOT NULL UNIQUE,
-        display_name    TEXT    NOT NULL,
-        role            TEXT    NOT NULL CHECK (role IN ('admin', 'standard')),
-        password_hash   TEXT    DEFAULT NULL,
-        timezone        TEXT    NOT NULL DEFAULT 'UTC',
-        command_id      INTEGER REFERENCES commands(id),
-        department_id   INTEGER REFERENCES departments(id),
-        is_active       INTEGER NOT NULL DEFAULT 1,
-        created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
-        updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
-      );
-      -- Copy data, mapping old roles to new
-      INSERT INTO users_new (id, email, display_name, role, password_hash, timezone, command_id, department_id, is_active, created_at, updated_at)
-        SELECT id, email, display_name,
-          CASE WHEN role = 'admin' THEN 'admin' ELSE 'standard' END,
-          password_hash, timezone, command_id, department_id, is_active, created_at, updated_at
-        FROM users;
-      -- Swap tables
-      DROP TABLE users;
-      ALTER TABLE users_new RENAME TO users;
-    `);
+
+    // Clean up from any previous failed migration attempt
+    db.exec('DROP TABLE IF EXISTS users_new');
+
+    // Must disable FK enforcement to drop a table referenced by other tables
+    db.pragma('foreign_keys = OFF');
+
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE users_new (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          email           TEXT    NOT NULL UNIQUE,
+          display_name    TEXT    NOT NULL,
+          role            TEXT    NOT NULL CHECK (role IN ('admin', 'standard')),
+          password_hash   TEXT    DEFAULT NULL,
+          timezone        TEXT    NOT NULL DEFAULT 'UTC',
+          command_id      INTEGER REFERENCES commands(id),
+          department_id   INTEGER REFERENCES departments(id),
+          is_active       INTEGER NOT NULL DEFAULT 1,
+          created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+          updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`
+        INSERT INTO users_new (id, email, display_name, role, password_hash, timezone, command_id, department_id, is_active, created_at, updated_at)
+          SELECT id, email, display_name,
+            CASE WHEN role = 'admin' THEN 'admin' ELSE 'standard' END,
+            password_hash, timezone, command_id, department_id, is_active, created_at, updated_at
+          FROM users
+      `);
+      db.exec('DROP TABLE users');
+      db.exec('ALTER TABLE users_new RENAME TO users');
+    })();
+
+    // Re-enable FK enforcement
+    db.pragma('foreign_keys = ON');
+
     // Recreate indexes
     db.exec('CREATE INDEX IF NOT EXISTS idx_users_command ON users(command_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_users_role_command ON users(role, command_id, is_active)');
@@ -177,9 +189,15 @@ export function runMigrations(): void {
   // Seed demo requests (depends on template + field definitions existing)
   const hasRequests = db.prepare('SELECT COUNT(*) as count FROM requests').get() as any;
   if (hasRequests.count === 0) {
-    const demoSeed = fs.readFileSync(path.join(__dirname, 'seed-demo.sql'), 'utf-8');
-    db.exec(demoSeed);
-    logger.info('Demo request data seeded.');
+    try {
+      const demoSeed = fs.readFileSync(path.join(__dirname, 'seed-demo.sql'), 'utf-8');
+      db.exec(demoSeed);
+      logger.info('Demo request data seeded.');
+    } catch (e: any) {
+      // Demo seed may fail on migrated DBs due to FK/CHECK constraints from old data
+      // This is non-fatal — the app works without demo data
+      logger.warn({ error: e.message }, 'Demo seed skipped (non-fatal)');
+    }
   }
 
   logger.info('Database migrations and seed data applied.');
