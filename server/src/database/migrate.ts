@@ -117,12 +117,57 @@ export function runMigrations(): void {
   }
 
   // Migration: migrate old user roles to new two-axis model
-  // approver, n4, contracting, reviewer, requester, viewer → standard
-  // admin stays admin
-  db.exec(`
-    UPDATE users SET role = 'standard'
-    WHERE role IN ('approver', 'n4', 'contracting', 'reviewer', 'requester', 'viewer')
-  `);
+  // SQLite CHECK constraints can't be altered, so we must recreate the table
+  // if the old CHECK constraint still exists (production DB has old 7-role CHECK).
+  const hasOldRoleCheck = (() => {
+    try {
+      // Test if 'standard' is allowed by the current CHECK constraint
+      db.exec("UPDATE users SET role = 'standard' WHERE role = '__nonexistent__'");
+      return false; // No error = 'standard' is allowed (new schema or no CHECK)
+    } catch (e: any) {
+      if (e.code === 'SQLITE_CONSTRAINT_CHECK') return true;
+      return false;
+    }
+  })();
+
+  if (hasOldRoleCheck) {
+    logger.info('Migrating users table to new role CHECK constraint...');
+    db.exec(`
+      -- Recreate users table with new CHECK constraint
+      CREATE TABLE users_new (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        email           TEXT    NOT NULL UNIQUE,
+        display_name    TEXT    NOT NULL,
+        role            TEXT    NOT NULL CHECK (role IN ('admin', 'standard')),
+        password_hash   TEXT    DEFAULT NULL,
+        timezone        TEXT    NOT NULL DEFAULT 'UTC',
+        command_id      INTEGER REFERENCES commands(id),
+        department_id   INTEGER REFERENCES departments(id),
+        is_active       INTEGER NOT NULL DEFAULT 1,
+        created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+        updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+      );
+      -- Copy data, mapping old roles to new
+      INSERT INTO users_new (id, email, display_name, role, password_hash, timezone, command_id, department_id, is_active, created_at, updated_at)
+        SELECT id, email, display_name,
+          CASE WHEN role = 'admin' THEN 'admin' ELSE 'standard' END,
+          password_hash, timezone, command_id, department_id, is_active, created_at, updated_at
+        FROM users;
+      -- Swap tables
+      DROP TABLE users;
+      ALTER TABLE users_new RENAME TO users;
+    `);
+    // Recreate indexes
+    db.exec('CREATE INDEX IF NOT EXISTS idx_users_command ON users(command_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_users_role_command ON users(role, command_id, is_active)');
+    logger.info('Users table migrated to new role model.');
+  } else {
+    // New schema already in place — just update any remaining old role values
+    db.exec(`
+      UPDATE users SET role = 'standard'
+      WHERE role NOT IN ('admin', 'standard')
+    `);
+  }
 
   const seed = fs.readFileSync(path.join(__dirname, 'seed.sql'), 'utf-8');
   db.exec(seed);
