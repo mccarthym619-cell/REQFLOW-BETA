@@ -4,6 +4,7 @@ import { config } from './config/env';
 import { logger } from './config/logger';
 import { runMigrations } from './database/migrate';
 import { UPLOADS_DIR } from './config/uploads';
+import { startEscalationService } from './services/escalation.service';
 
 // Initialize database
 runMigrations();
@@ -15,4 +16,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 
 app.listen(config.port, () => {
   logger.info(`Server running on http://localhost:${config.port}`);
+
+  // Start the escalation/SLA check service
+  startEscalationService();
 });

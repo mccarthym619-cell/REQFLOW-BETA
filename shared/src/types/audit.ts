@@ -5,6 +5,7 @@ export type AuditAction =
   | 'updated'
   | 'status_changed'
   | 'submitted'
+  | 'resubmitted'
   | 'approved'
   | 'rejected'
   | 'returned'

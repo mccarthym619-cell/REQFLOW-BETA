@@ -40,7 +40,7 @@ Each user has their own email + password login. Admins create user accounts; use
 
 - **Login flow**: Email entry → `POST /api/auth/check-email` → if `needs_password_setup` show "Set Password" form (`POST /api/auth/set-password`), otherwise show "Enter Password" form (`POST /api/auth/login`)
 - **Session middleware**: `server/src/middleware/accessGate.ts` (`sessionAuth`) — reads signed `session_token` cookie, loads user from DB, sets `req.user`
-- **Auth routes**: `server/src/routes/auth.routes.ts` — `POST /login`, `POST /set-password`, `POST /check-email`, `GET /check`, `POST /logout`
+- **Auth routes**: `server/src/routes/auth.routes.ts` — `POST /login`, `POST /set-password`, `POST /check-email`, `GET /check`, `POST /logout`, `POST /register`
 - **Client session**: `client/src/context/SessionContext.tsx` + `client/src/pages/Auth/LoginPage.tsx`
 - **Cookie**: signed httpOnly `session_token`, 7-day expiry, secure in production, sameSite strict
 - **Password hashing**: `crypto.scryptSync` with timing-safe comparison (`server/src/utils/password.ts`)
@@ -48,13 +48,47 @@ Each user has their own email + password login. Admins create user accounts; use
 - **Admin controls**: User Management page shows "Password Status" column (Set/Pending Setup). Admin can click "Reset Password" to force re-setup
 - **Skipped in dev**: `sessionAuth` middleware skips in development; `devAuth` handles user context
 
-### Dev Auth (Role Switching)
-Dev role-switcher toolbar at top of page. Uses `X-Current-User-Id` header — defaults to user 4 (requester) on page refresh. Middleware at `server/src/middleware/auth.ts`. DevToolbar only renders in development.
+### Self-Registration
+Public registration form at login page for new users to request access. Submits to `POST /api/auth/register` (public, rate-limited). Admins review pending registrations in User Management → "Pending Registrations" tab. Admin can approve (assign role + command) or deny (with reason). Approved users get a new account and set their password on first login.
 
-**7 roles**: admin, approver, n4, contracting, reviewer, requester, viewer
+- **Routes**: `server/src/routes/registrations.routes.ts` — `GET /` (list), `POST /:id/approve`, `POST /:id/deny`
+- **Service**: `server/src/services/registrations.service.ts`
+- **DB table**: `registration_requests` (status: pending/approved/denied)
+
+### Dev Auth (Role Switching)
+Dev role-switcher toolbar at top of page. Uses `X-Current-User-Id` header — defaults to user 4 on page refresh. Middleware at `server/src/middleware/auth.ts`. DevToolbar only renders in development.
+
+### Two-Axis Permission Model
+
+**App Roles** (`users.role`): `admin`, `standard`
+- `admin` — full app access: manage templates, users, departments, permissions, settings, audit log
+- `standard` — create/edit/submit requests in own command, view all requests
+
+**Approval Permissions** (`user_permissions` table): REVIEWER, ENDORSER, CERTIFIER, APPROVER, COMPLETER
+- Scoped to **command + department** (NULL department = all departments in that command)
+- NSWG-8 (parent command) permissions **cascade** to all subordinate commands (not department-specific when cascading)
+- Each approval chain step targets a specific department + permission level
+- Routing engine resolves eligible users via `user_permissions`, excludes submitter, checks delegation limits
+
+**Departments** (`departments` table): subdivisions within commands
+- NSWG-8: N1, N2, N3, N4, N6, N7, N8, Medical, Facilities, JAG, Contracting, Executive
+- Subordinate commands: N1, N2, N3, N4, N6, Medical, Dive Systems, 1TRP, 2TRP, 3TRP, 4TRP, TRIAD
+- Admin-manageable: add, rename, deactivate per command
 
 **Seed users** (from `server/src/database/seed.sql`):
-1. Sarah Admin (admin), 2. Jane Approver, 3. Mike Finance (approvers), 4. John Requester, 5. View Only (viewer), 6. Lisa N4, 7. Tom Contracting, 8. Amy Reviewer, 9. Michael McCarthy (admin)
+1. Sarah Admin (admin, NSWG-8/Executive, APPROVER), 2. Jane Approver (standard, NSWG-8/N8, APPROVER), 3. Mike Finance (standard, NSWG-8/N4, CERTIFIER), 4. John Requester (standard, SDVT-1/N4), 5. View Only (standard, SDVT-1/N4), 6. Lisa N4 (standard, NSWG-8/N4, COMPLETER+REVIEWER), 7. Tom Contracting (standard, NSWG-8/Contracting), 8. Amy Reviewer (standard, NSWG-8/N3, REVIEWER+ENDORSER), 9. Michael McCarthy (admin, NSWG-8/Executive, APPROVER)
+
+## Commands & Departments
+
+11 military commands stored in `commands` table, seeded via `seed.sql`. Each user belongs to a command + department via `users.command_id` and `users.department_id` FKs.
+
+- **Commands**: NSWG-8 (parent), SDVT-1, SDVT-2, SRT-1, SRT-2, LOSGU-8, MSC, IMD, TRADET-8 HI, TRADET-8 CA, TRADET-8 VA
+- **Departments**: subdivisions within commands (stored in `departments` table). NSWG-8 has 12 depts, subordinate commands have 12 each
+- **Command hierarchy**: NSWG-8 is the parent command; permissions in NSWG-8 cascade to all subordinate commands
+- **Routing engine**: `server/src/services/routing.service.ts` resolves eligible approvers based on `user_permissions` (command + department + permission level). Supports compound AND/OR conditions, delegation limits, submitter exclusion, and parent command cascade
+- **Pending actions**: `pending_actions` table drives the dashboard "Pending Your Action" widget and SLA tracking. Rows are created when a step activates and closed when acted upon
+- **Escalation service**: `server/src/services/escalation.service.ts` runs every 15 min, checks overdue `pending_actions`, sends reminders then escalations
+- **Request filtering**: My Requests page has a command dropdown filter
 
 ## Key Patterns
 
@@ -65,27 +99,38 @@ Dev role-switcher toolbar at top of page. Uses `X-Current-User-Id` header — de
 - **Input sanitization**: `server/src/utils/sanitize.ts` escapes HTML entities in notification content before DB insert
 - **Toast notifications**: `client/src/utils/toast.ts` wraps `react-hot-toast` — `showError()` and `showSuccess()` replace all `alert()`/`console.error`-only patterns
 - **Approval race condition protection**: Optimistic locking in approval service — UPDATE checks `WHERE status = 'active'` and verifies `changes === 0` → 409 Conflict
+- **Approval pipeline**: Sequential and parallel steps defined per template. Each step targets a department + permission level. Routing engine (`server/src/services/routing.service.ts`) resolves eligible users from `user_permissions`. Supports `execution_mode` (sequential/parallel), `parallel_group`, compound conditions, `sla_hours`, and `target_department_id`/`required_permission` fields. Service layer in `server/src/services/approvals.service.ts`. Pending actions dispatched via `server/src/services/pending-actions.service.ts`
+- **RETURNED resume**: When a step returns a request, `returned_from_step` is stored. On re-submit, routing resumes at the returning step (steps before it are not re-run)
+- **Repository pattern**: New tables (departments, user_permissions, pending_actions) use a data access layer in `server/src/repositories/` to isolate SQL for future DB migration
 - **Audit log IP/User-Agent**: Approval and request action services accept optional `ip` and `userAgent` params, passed from route handlers via `req.ip` and `req.get('user-agent')`
-- **Military commands**: NSWG-8, SDVT-1, SDVT-2, SRT-1, SRT-2, LOSGU-8, MSC, IMD, TRADET-8 HI, TRADET-8 CA, TRADET-8 VA
 - **Request types**: Facilities, OCIE, Supplies and Services, Training, Force Generation, Professional Development, Maintenance, MIPR
 - **Priority levels**: Critical, Essential, Enhancing (standard template); also supports low, normal, high, urgent in the type system
 - **File upload**: "Upload-first" pattern — `POST /api/files/upload` returns file ID, stored as string field value, linked to request on save. Download via `GET /api/files/:id/download`. Supports single-file (`file` type) and multi-file (`multi_file` type, stores JSON array of file IDs). Client-side MIME validation in `client/src/utils/fileValidation.ts` mirrors server whitelist
 - **Status machine**: `draft → submitted → pending_approval → approved/rejected/returned → completed` (also `cancelled` from any active state). Defined in `shared/src/utils/statusMachine.ts`
-- **Approval pipeline**: Sequential steps defined per template. Each step assigns to a user or role. Service layer in `server/src/services/approvals.service.ts`
 - **Audit**: Immutable append-only `audit_log` table with field-level change tracking (old_value → new_value as JSON)
 - **Notifications**: In-app via SSE (`server/src/services/sse.service.ts`) + email via Nodemailer
 - **Nudge system**: Requesters can nudge approvers after configurable threshold (default 72h), rate-limited 1 per 24h
 
+## User Management (Admin)
+
+Admin-only page at `/admin/users` with server-side pagination, search, and filtering.
+
+- **Pagination**: `GET /api/users?page=1&perPage=50&search=...&role=...&command_id=...&is_active=...&sort=...&order=...`
+- **Backward-compatible**: No query params → returns flat array (for DevToolbar user list)
+- **Bulk CSV import**: `POST /api/users/import` — accepts array of `{email, display_name, role, command}`, resolves command names to IDs, validates, inserts in transaction
+- **UI features**: Debounced search, role/command filter dropdowns, sortable column headers, CSV file upload with preview table and import result summary modal
+- **Password reset**: `POST /api/users/:id/reset-password` clears `password_hash`, forcing re-setup on next login
+
 ## Security (Production Hardening)
 
 - **Helmet**: Security headers — CSP, X-Frame-Options, HSTS, X-Content-Type-Options (CSP disabled in dev for Vite HMR)
-- **Rate limiting**: 200 requests per 15 minutes on `/api` routes (`express-rate-limit`)
+- **Rate limiting**: 200 requests per 15 minutes on `/api` routes (`express-rate-limit`); 10 per 15 min on `/api/auth` in production
 - **CORS**: Production = same-origin (no CORS needed); dev = allow `http://localhost:5173` with credentials
 - **Signed cookies**: `cookie-parser` with `SESSION_SECRET` for session tokens (min 32 chars in production)
-- **SQL injection**: All queries parameterized via better-sqlite3
+- **SQL injection**: All queries parameterized via better-sqlite3. Sort columns validated against allowlist
 - **File uploads**: UUID filenames, 10MB limit, MIME whitelist (validated client-side and server-side)
 - **Input length limits**: Field values capped at 10,000 chars via Zod schema validation
-- **Role-based route guards**: Approval endpoints require `admin`, `approver`, `n4`, `contracting`, or `reviewer` role via `requireRole()` middleware
+- **Role-based route guards**: Admin-only endpoints use `requireRole('admin')`. Approval eligibility is validated at the service layer via the routing engine (`isUserEligibleForStep`), not at the route guard level
 - **Error handler**: No stack trace leaks in responses
 
 ## Deployment
@@ -114,6 +159,25 @@ All env vars defined in `server/src/config/env.ts`. Defaults in `.env.example`. 
 
 `resolveProjectPath()` in `env.ts` resolves relative paths (e.g. `./data/...`) against `PROJECT_ROOT` (3 levels up from `server/src/config/`). Absolute paths (e.g. `/app/data/...` in production) are used as-is. This prevents different DB files being created when cwd differs (npm workspace vs preview server).
 
+## Database Migrations
+
+Migrations in `server/src/database/migrate.ts` run on every server startup. Pattern: `ALTER TABLE ... ADD COLUMN` wrapped in try/catch that ignores "duplicate column" errors.
+
+**Migration order matters**: `schema.sql` runs first (creates tables if not exist), then ALTER TABLE migrations add new columns to existing tables, then `seed.sql` runs (uses `INSERT OR IGNORE`).
+
+**Important**: New columns/indexes that reference columns added by migrations must NOT be in `schema.sql` — they must be in `migrate.ts` after the ALTER TABLE that adds the column. Example: `command_id` indexes are in `migrate.ts`, not `schema.sql`, because existing DBs won't have `command_id` when schema runs.
+
+Current migrations:
+1. `password_hash` column on `users`
+2. `timezone` column on `users`
+3. `command_id` column on `users` + indexes
+4. `execution_mode`, `parallel_group`, `condition` columns on `approval_chain_steps`
+5. `department_id` column on `users`
+6. `target_department_id`, `required_permission`, `sla_hours` columns on `approval_chain_steps`
+7. `department_id`, `returned_from_step` columns on `requests`
+8. `trigger_type`, `trigger_config` columns on `request_templates`
+9. Role migration: old roles (approver, n4, contracting, reviewer, requester, viewer) → `standard`
+
 ## Timezone Support
 
 Per-user timezone stored in `users.timezone` column (default `'UTC'`). Auto-detected from browser on first login via `SessionContext.tsx`.
@@ -122,7 +186,6 @@ Per-user timezone stored in `users.timezone` column (default `'UTC'`). Auto-dete
 - **Timezone hook**: `client/src/hooks/useTimezone.ts` — returns user's timezone from session, falls back to browser timezone
 - **User settings page**: `client/src/pages/Settings/UserSettingsPage.tsx` — searchable timezone dropdown, browser auto-detect button, saves via `PUT /api/users/me/timezone`
 - **API endpoint**: `PUT /api/users/me/timezone` in `server/src/routes/users.routes.ts`
-- **Migration**: `server/src/database/migrate.ts` adds `timezone` column to existing databases
 
 ## Dark Mode
 
@@ -143,9 +206,9 @@ In-app walkthrough for new users, accessible from the **Help Guide** button in t
 - **Steps**: Dashboard Overview, Creating a Request, Approval Pipeline, Request Statuses, Comments & Discussion, Notifications, Search & Filters, User Management, System Settings
 - **Features**: Sidebar step navigation, Previous/Next buttons, step counter, Escape to close, click-outside to close, arrow key navigation, dark mode support
 
-## Database Schema (14 tables)
+## Database Schema (19 tables)
 
-`users`, `request_templates`, `custom_field_definitions`, `approval_chain_steps`, `requests`, `custom_field_values`, `uploaded_files`, `request_approval_steps`, `comments`, `audit_log`, `notifications`, `nudges`, `system_settings`, `sequence_counters`
+`commands`, `departments`, `users`, `user_permissions`, `request_templates`, `custom_field_definitions`, `approval_chain_steps`, `requests`, `custom_field_values`, `uploaded_files`, `request_approval_steps`, `pending_actions`, `comments`, `audit_log`, `notifications`, `nudges`, `system_settings`, `sequence_counters`, `registration_requests`
 
 Schema: `server/src/database/schema.sql` | Seed: `server/src/database/seed.sql` | Demo data: `server/src/database/seed-demo.sql`
 
@@ -157,16 +220,17 @@ Demo seed includes 10 requests across all statuses (draft, submitted, pending_ap
 
 ```
 shared/src/
-  types/          — FieldType, CustomFieldDefinition, Request, User (includes timezone), Priority, DashboardSummary/PendingItem/ActivityItem/AwaitingItem, etc.
-  constants/      — statuses, roles, fieldTypes, standardFields, notifications
+  types/          — FieldType, CustomFieldDefinition, Request (includes department_id, returned_from_step), User (includes department_id, ApprovalPermission), Department, UserPermission, PendingAction, StepCondition (compound AND/OR), Priority, DashboardSummary, etc.
+  constants/      — statuses, roles (admin/standard + APPROVAL_PERMISSION_LABELS), fieldTypes, standardFields, notifications
   utils/          — statusMachine, permissions
 
 server/src/
   config/         — env.ts (all env vars), uploads.ts (UPLOADS_DIR, MAX_FILE_SIZE, ALLOWED_MIME_TYPES)
   database/       — connection.ts, migrate.ts, schema.sql, seed.sql, seed-demo.sql
   middleware/     — auth.ts (dev role switching), accessGate.ts (session auth cookie), errorHandler.ts, validation.ts
-  routes/         — auth, files, requests, templates, users, audit, dashboard, notifications, settings
-  services/       — matching service for each route + approvals, comments, nudges, sse
+  repositories/   — data access layer for departments, permissions, pendingActions (isolates SQL for future DB migration)
+  routes/         — auth, files, requests, templates, users, registrations, audit, dashboard, notifications, settings, departments, permissions
+  services/       — matching service for each route + approvals, comments, nudges, registrations, sse, routing (engine), pending-actions, escalation
   utils/          — referenceNumber.ts, dateFormat.ts (DB date formatting), fieldValidation.ts (per-type validation), sanitize.ts (HTML escaping), password.ts
 
 client/src/
@@ -181,13 +245,13 @@ client/src/
     layout/       — Sidebar, TopBar (includes dark mode toggle), DevToolbar
     shared/       — StatusBadge, PriorityBadge, LoadingSpinner, EmptyState, FileUploadInput, MultiFileUploadInput, HelpGuide, TextInputModal (+ ConfirmModal)
   pages/
-    Admin/        — Templates (list + builder), Users, AuditLog, Settings
+    Admin/        — Templates (list + builder), Users (management + pending registrations), Departments, Permissions, AuditLog, Settings
     Approvals/    — PendingApprovalsPage
-    Auth/         — LoginPage (email + password two-step)
+    Auth/         — LoginPage (email + password two-step + registration)
     Dashboard/    — DashboardPage (role-aware layout, see below)
     Settings/     — UserSettingsPage (timezone)
     Notifications/
-    Requests/     — RequestListPage, RequestCreatePage, RequestDetailPage
+    Requests/     — RequestListPage (status + command filters), RequestCreatePage, RequestDetailPage
       components/ — RequestApprovalPanel (4 panels), RequestDetailsTab, RequestTimelineTab, RequestCommentsTab, RequestFieldRenderer
 ```
 
@@ -195,30 +259,34 @@ client/src/
 
 Role-aware dashboard in `client/src/pages/Dashboard/DashboardPage.tsx`:
 
-**Requester layout** (top → bottom):
-1. Pending Your Action (full-width)
-2. Status Summary Cards (Draft, Pending Approval, Approved, Rejected, Completed)
-3. Recent Activity (full-width)
-
-**All other roles** (admin, approver, n4, reviewer, contracting, viewer):
-1. Status Summary Cards
-2. Awaiting Purchase Completion (N4/Admin only, when items exist)
+**Admin layout** (top → bottom):
+1. Status Summary Cards (Draft, Pending Approval, Approved, Rejected, Completed)
+2. Awaiting Purchase Completion (when items exist)
 3. Two-column grid: Pending Your Action + Recent Activity
+
+**Standard user layout** (top → bottom):
+1. Pending Your Action (full-width, powered by `pending_actions` table)
+2. Status Summary Cards
+3. Recent Activity (full-width)
 
 ## API Endpoints
 
-- `/api/auth` — check-email, set-password, login, check, logout (user auth)
+- `/api/auth` — check-email, set-password, login, check, logout, register (user auth + self-registration)
 - `/api/health` — health check (bypasses access gate)
-- `/api/users` — CRUD + current user + password reset + timezone (`PUT /me/timezone`)
+- `/api/users` — CRUD + current user + password reset + timezone + bulk import + commands list
+- `/api/users/commands` — list all active commands
+- `/api/departments` — CRUD for departments per command (admin can add/rename/deactivate)
+- `/api/permissions` — CRUD for scoped user permissions (admin only)
+- `/api/registrations` — list pending, approve, deny (admin only)
 - `/api/templates` — CRUD with nested fields + approval chain
-- `/api/requests` — CRUD + submit/cancel/complete + timeline + approval status
-- `/api/requests/:id/approvals` — approve/reject/return
+- `/api/requests` — CRUD + submit/cancel/complete + timeline + approval status (supports `command` filter param)
+- `/api/requests/:id/approvals` — approve/reject/return (validates via routing engine, not role)
 - `/api/requests/:id/nudge` — send nudge, acknowledge
 - `/api/requests/:id/comments` — threaded CRUD
 - `/api/files` — upload, download, metadata, delete
 - `/api/notifications` — list, read, SSE stream
 - `/api/audit` — search/filter
-- `/api/dashboard` — summary counts, pending actions, awaiting-completion (N4)
+- `/api/dashboard` — summary counts, pending actions (from `pending_actions` table), awaiting-completion (admin)
 - `/api/settings` — system config (admin)
 
 ## TanStack Query Patterns
@@ -236,7 +304,7 @@ All pages use React Query hooks instead of manual `useEffect`+`useState`. Hooks 
 - `npm install` may need `HOME=/tmp npm install` if cache permission errors occur
 - better-sqlite3 is synchronous — no async/await needed for DB calls
 - Multer errors (file too large, invalid type) handled in `server/src/middleware/errorHandler.ts`
-- Template builder: standard fields shown as locked (Lock icon), custom fields editable below
+- Template builder: standard fields shown as locked (Lock icon), custom fields editable below. Approval chain steps target a department + permission level (or specific user), with optional SLA hours per step
 - Request forms render all 12 field types: text, textarea, number, currency, date, dropdown, multi_select, checkbox, file, multi_file, url, email
 - Request title is auto-generated from reference number on submit — not user-entered
 - **Shared package** uses `.js` extensions in imports (`import ... from './types/user.js'`) for Node.js ESM compatibility. TypeScript with `moduleResolution: NodeNext` resolves `.js` → `.ts` files

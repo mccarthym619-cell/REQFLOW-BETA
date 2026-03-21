@@ -17,10 +17,12 @@ export interface Request {
   reference_number: string;
   template_id: number;
   submitted_by: number;
+  department_id: number | null;
   title: string;
   status: RequestStatus;
   priority: Priority;
   current_step_order: number | null;
+  returned_from_step: number | null;
   submitted_at: string | null;
   completed_at: string | null;
   sla_deadline: string | null;
@@ -28,6 +30,8 @@ export interface Request {
   updated_at: string;
   template_name?: string;
   submitter_name?: string;
+  department_name?: string;
+  command_name?: string;
   field_values?: Record<string, string>;
 }
 

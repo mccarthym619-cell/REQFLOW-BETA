@@ -3,12 +3,12 @@ import { createAuditEntry } from './audit.service';
 import type { User, CreateUserPayload, UpdateUserPayload, Command } from '@req-tracker/shared';
 
 // Columns to select for public user queries (excludes password_hash)
-const USER_COLUMNS = `u.id, u.email, u.display_name, u.role, u.timezone, u.command_id, c.name as command_name, u.is_active, (u.password_hash IS NOT NULL) as has_password, u.created_at, u.updated_at`;
+const USER_COLUMNS = `u.id, u.email, u.display_name, u.role, u.timezone, u.command_id, c.name as command_name, u.department_id, d.name as department_name, u.is_active, (u.password_hash IS NOT NULL) as has_password, u.created_at, u.updated_at`;
 
-const USER_FROM = `FROM users u LEFT JOIN commands c ON c.id = u.command_id`;
+const USER_FROM = `FROM users u LEFT JOIN commands c ON c.id = u.command_id LEFT JOIN departments d ON d.id = u.department_id`;
 
 function rowToUser(row: any): User {
-  return { ...row, command_name: row.command_name ?? null, is_active: Boolean(row.is_active), has_password: Boolean(row.has_password) };
+  return { ...row, command_name: row.command_name ?? null, department_name: row.department_name ?? null, department_id: row.department_id ?? null, is_active: Boolean(row.is_active), has_password: Boolean(row.has_password) };
 }
 
 export interface UserWithPassword extends User {
@@ -204,7 +204,7 @@ export interface BulkImportResult {
   errors: { row: number; email: string; error: string }[];
 }
 
-const VALID_ROLES = ['admin', 'approver', 'n4', 'contracting', 'reviewer', 'requester', 'viewer'];
+const VALID_ROLES = ['admin', 'standard'];
 
 export function bulkImportUsers(rows: BulkImportRow[], performedBy: number): BulkImportResult {
   const db = getDb();

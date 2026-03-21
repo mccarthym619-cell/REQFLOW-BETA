@@ -9,6 +9,8 @@ import dashboardRouter from './dashboard.routes';
 import settingsRouter from './settings.routes';
 import filesRouter from './files.routes';
 import registrationsRouter from './registrations.routes';
+import departmentsRouter from './departments.routes';
+import permissionsRouter from './permissions.routes';
 
 const router = Router();
 
@@ -22,5 +24,7 @@ router.use('/audit', auditRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/settings', settingsRouter);
 router.use('/files', filesRouter);
+router.use('/departments', departmentsRouter);
+router.use('/permissions', permissionsRouter);
 
 export default router;

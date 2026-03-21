@@ -20,7 +20,7 @@ export function RequestListPage() {
   const command = searchParams.get('command') ?? '';
   const search = searchParams.get('search') ?? '';
   const page = parseInt(searchParams.get('page') ?? '1', 10);
-  const canCreate = hasPermission((currentUser?.role ?? 'viewer') as UserRole, 'requests.create');
+  const canCreate = hasPermission((currentUser?.role ?? 'standard') as UserRole, 'requests.create');
 
   const { data, isLoading } = useRequests({ status: status || undefined, command: command || undefined, search: search || undefined, page });
   const requests = data?.data ?? [];

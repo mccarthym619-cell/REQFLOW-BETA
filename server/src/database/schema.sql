@@ -15,16 +15,33 @@ CREATE TABLE IF NOT EXISTS commands (
 );
 
 -- ============================================================
+-- DEPARTMENTS (subdivisions within commands)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS departments (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    command_id      INTEGER NOT NULL REFERENCES commands(id),
+    name            TEXT    NOT NULL,
+    code            TEXT    NOT NULL,
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(command_id, code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dept_command ON departments(command_id);
+
+-- ============================================================
 -- USERS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS users (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     email           TEXT    NOT NULL UNIQUE,
     display_name    TEXT    NOT NULL,
-    role            TEXT    NOT NULL CHECK (role IN ('admin', 'approver', 'n4', 'contracting', 'reviewer', 'requester', 'viewer')),
+    role            TEXT    NOT NULL CHECK (role IN ('admin', 'standard')),
     password_hash   TEXT    DEFAULT NULL,
     timezone        TEXT    NOT NULL DEFAULT 'UTC',
     command_id      INTEGER REFERENCES commands(id),
+    department_id   INTEGER REFERENCES departments(id),
     is_active       INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
@@ -34,6 +51,25 @@ CREATE TABLE IF NOT EXISTS users (
 -- to avoid errors on existing databases that don't yet have the command_id column.
 
 -- ============================================================
+-- USER PERMISSIONS (scoped approval permissions per command/department)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_permissions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL REFERENCES users(id),
+    command_id      INTEGER NOT NULL REFERENCES commands(id),
+    department_id   INTEGER REFERENCES departments(id),
+    permission      TEXT    NOT NULL CHECK (permission IN ('REVIEWER', 'ENDORSER', 'CERTIFIER', 'APPROVER', 'COMPLETER')),
+    delegation_limit REAL   DEFAULT NULL,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_up_user ON user_permissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_up_command_dept ON user_permissions(command_id, department_id, permission);
+-- Two partial unique indexes to handle NULL department_id correctly
+CREATE UNIQUE INDEX IF NOT EXISTS idx_up_unique_with_dept ON user_permissions(user_id, command_id, department_id, permission) WHERE department_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_up_unique_null_dept ON user_permissions(user_id, command_id, permission) WHERE department_id IS NULL;
+
+-- ============================================================
 -- REQUEST TEMPLATES
 -- ============================================================
 CREATE TABLE IF NOT EXISTS request_templates (
@@ -41,6 +77,8 @@ CREATE TABLE IF NOT EXISTS request_templates (
     name            TEXT    NOT NULL,
     description     TEXT,
     prefix          TEXT    NOT NULL,
+    trigger_type    TEXT    NOT NULL DEFAULT 'MANUAL' CHECK (trigger_type IN ('MANUAL', 'AMOUNT', 'CATEGORY', 'AUTO')),
+    trigger_config  TEXT    DEFAULT NULL,
     is_active       INTEGER NOT NULL DEFAULT 1,
     created_by      INTEGER NOT NULL REFERENCES users(id),
     created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
@@ -84,12 +122,15 @@ CREATE TABLE IF NOT EXISTS approval_chain_steps (
     template_id     INTEGER NOT NULL REFERENCES request_templates(id) ON DELETE CASCADE,
     step_order      INTEGER NOT NULL,
     step_name       TEXT    NOT NULL,
-    approver_type   TEXT    NOT NULL CHECK (approver_type IN ('role', 'specific_user', 'role_by_command')),
+    approver_type   TEXT    NOT NULL CHECK (approver_type IN ('role', 'specific_user', 'role_by_command', 'permission')),
     approver_role   TEXT,
     approver_user_id INTEGER REFERENCES users(id),
+    target_department_id INTEGER REFERENCES departments(id),
+    required_permission TEXT CHECK (required_permission IN ('REVIEWER', 'ENDORSER', 'CERTIFIER', 'APPROVER', 'COMPLETER')),
     execution_mode  TEXT    NOT NULL DEFAULT 'sequential' CHECK (execution_mode IN ('sequential', 'parallel')),
     parallel_group  INTEGER DEFAULT NULL,
     condition       TEXT    DEFAULT NULL,
+    sla_hours       INTEGER DEFAULT NULL,
     is_active       INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
@@ -107,6 +148,7 @@ CREATE TABLE IF NOT EXISTS requests (
     reference_number TEXT   NOT NULL UNIQUE,
     template_id     INTEGER NOT NULL REFERENCES request_templates(id),
     submitted_by    INTEGER NOT NULL REFERENCES users(id),
+    department_id   INTEGER REFERENCES departments(id),
     title           TEXT    NOT NULL,
     status          TEXT    NOT NULL DEFAULT 'draft' CHECK (status IN (
                         'draft', 'submitted', 'pending_approval',
@@ -118,6 +160,7 @@ CREATE TABLE IF NOT EXISTS requests (
                         'critical', 'essential', 'enhancing'
                     )),
     current_step_order INTEGER DEFAULT NULL,
+    returned_from_step INTEGER DEFAULT NULL,
     submitted_at    TEXT,
     completed_at    TEXT,
     sla_deadline    TEXT,
@@ -188,6 +231,24 @@ CREATE INDEX IF NOT EXISTS idx_ras_request ON request_approval_steps(request_id)
 CREATE INDEX IF NOT EXISTS idx_ras_assigned ON request_approval_steps(assigned_to, status);
 CREATE INDEX IF NOT EXISTS idx_ras_acted_by ON request_approval_steps(acted_on_by);
 CREATE INDEX IF NOT EXISTS idx_ras_request_status ON request_approval_steps(request_id, status);
+
+-- ============================================================
+-- PENDING ACTIONS (per-user dashboard queue with SLA tracking)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS pending_actions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id      INTEGER NOT NULL REFERENCES requests(id) ON DELETE CASCADE,
+    step_id         INTEGER NOT NULL REFERENCES request_approval_steps(id),
+    assigned_to     INTEGER NOT NULL REFERENCES users(id),
+    assigned_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    status          TEXT    NOT NULL DEFAULT 'WAITING' CHECK (status IN ('WAITING', 'ACTED', 'EXPIRED')),
+    notified_at     TEXT,
+    due_by          TEXT,
+    UNIQUE(request_id, step_id, assigned_to)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pa_assigned_status ON pending_actions(assigned_to, status);
+CREATE INDEX IF NOT EXISTS idx_pa_request_step ON pending_actions(request_id, step_id);
 
 -- ============================================================
 -- COMMENTS

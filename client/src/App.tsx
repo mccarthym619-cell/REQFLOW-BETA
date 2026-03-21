@@ -16,6 +16,8 @@ import { TemplateBuilderPage } from './pages/Admin/Templates/TemplateBuilderPage
 import { UserManagementPage } from './pages/Admin/Users/UserManagementPage';
 import { AuditLogPage } from './pages/Admin/Audit/AuditLogPage';
 import { SystemSettingsPage } from './pages/Admin/Settings/SystemSettingsPage';
+import { DepartmentManagementPage } from './pages/Admin/Departments/DepartmentManagementPage';
+import { PermissionManagementPage } from './pages/Admin/Permissions/PermissionManagementPage';
 import { UserSettingsPage } from './pages/Settings/UserSettingsPage';
 import { LoginPage } from './pages/Auth/LoginPage';
 import { LoadingSpinner } from './components/shared/LoadingSpinner';
@@ -62,6 +64,8 @@ function AppContent() {
             <Route path="/admin/templates/new" element={<TemplateBuilderPage />} />
             <Route path="/admin/templates/:id/edit" element={<TemplateBuilderPage />} />
             <Route path="/admin/users" element={<UserManagementPage />} />
+            <Route path="/admin/departments" element={<DepartmentManagementPage />} />
+            <Route path="/admin/permissions" element={<PermissionManagementPage />} />
             <Route path="/admin/audit" element={<AuditLogPage />} />
             <Route path="/admin/settings" element={<SystemSettingsPage />} />
           </Route>

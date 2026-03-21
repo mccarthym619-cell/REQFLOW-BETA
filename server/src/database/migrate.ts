@@ -65,6 +65,65 @@ export function runMigrations(): void {
     if (!e.message.includes('duplicate column')) throw e;
   }
 
+  // Migration: add department_id to users
+  try {
+    db.exec('ALTER TABLE users ADD COLUMN department_id INTEGER REFERENCES departments(id)');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+
+  // Migration: expand users.role CHECK to include 'standard' (SQLite doesn't enforce ALTER CHECK,
+  // but new rows will use the schema definition; existing rows with old roles are migrated in seed)
+
+  // Migration: add target_department_id, required_permission, sla_hours to approval_chain_steps
+  try {
+    db.exec('ALTER TABLE approval_chain_steps ADD COLUMN target_department_id INTEGER REFERENCES departments(id)');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+  try {
+    db.exec("ALTER TABLE approval_chain_steps ADD COLUMN required_permission TEXT");
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+  try {
+    db.exec('ALTER TABLE approval_chain_steps ADD COLUMN sla_hours INTEGER DEFAULT NULL');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+
+  // Migration: add department_id, returned_from_step to requests
+  try {
+    db.exec('ALTER TABLE requests ADD COLUMN department_id INTEGER REFERENCES departments(id)');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+  try {
+    db.exec('ALTER TABLE requests ADD COLUMN returned_from_step INTEGER DEFAULT NULL');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+
+  // Migration: add trigger_type, trigger_config to request_templates
+  try {
+    db.exec("ALTER TABLE request_templates ADD COLUMN trigger_type TEXT NOT NULL DEFAULT 'MANUAL'");
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+  try {
+    db.exec('ALTER TABLE request_templates ADD COLUMN trigger_config TEXT DEFAULT NULL');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+
+  // Migration: migrate old user roles to new two-axis model
+  // approver, n4, contracting, reviewer, requester, viewer → standard
+  // admin stays admin
+  db.exec(`
+    UPDATE users SET role = 'standard'
+    WHERE role IN ('approver', 'n4', 'contracting', 'reviewer', 'requester', 'viewer')
+  `);
+
   const seed = fs.readFileSync(path.join(__dirname, 'seed.sql'), 'utf-8');
   db.exec(seed);
 

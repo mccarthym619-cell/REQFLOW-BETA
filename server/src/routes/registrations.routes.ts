@@ -17,7 +17,7 @@ router.get('/', requireRole('admin'), (req: Request, res: Response) => {
 
 // POST /api/admin/registrations/:id/approve - Approve registration
 const approveSchema = z.object({
-  role: z.enum(['admin', 'approver', 'n4', 'contracting', 'reviewer', 'requester', 'viewer']),
+  role: z.enum(['admin', 'standard']),
 });
 
 router.post('/:id/approve', requireRole('admin'), validateBody(approveSchema), (req: Request, res: Response) => {

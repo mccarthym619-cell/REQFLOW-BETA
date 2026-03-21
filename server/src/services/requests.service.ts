@@ -9,8 +9,10 @@ import { AppError } from '../middleware/errorHandler';
 import { formatDateForDb } from '../utils/dateFormat';
 import { validateFieldValue } from '../utils/fieldValidation';
 import { logger } from '../config/logger';
-import type { Request as ReqType, CreateRequestPayload, UpdateRequestPayload, RequestStatus, ApprovalChainStep, StepCondition } from '@req-tracker/shared';
+import type { Request as ReqType, CreateRequestPayload, UpdateRequestPayload, RequestStatus, ApprovalChainStep, LegacyStepCondition } from '@req-tracker/shared';
 import type Database from 'better-sqlite3';
+import { resolveNextSteps } from './routing.service';
+import { dispatchPendingActions, onRequestClosed } from './pending-actions.service';
 
 /**
  * Evaluate a step condition against request field values.
@@ -19,7 +21,7 @@ import type Database from 'better-sqlite3';
 function evaluateStepCondition(conditionJson: string | null, fieldValues: Record<string, string>): boolean {
   if (!conditionJson) return true;
   try {
-    const cond: StepCondition = JSON.parse(conditionJson);
+    const cond: LegacyStepCondition = JSON.parse(conditionJson);
     const actual = fieldValues[cond.field];
     switch (cond.operator) {
       case 'equals': return actual === cond.value;
@@ -91,11 +93,8 @@ export function getRequests(filters: {
   const conditions: string[] = [];
   const params: unknown[] = [];
 
-  // Role-based filtering: requester and viewer only see their own requests
-  if ((filters.userRole === 'requester' || filters.userRole === 'viewer') && filters.userId) {
-    conditions.push('r.submitted_by = ?');
-    params.push(filters.userId);
-  } else if (filters.submittedBy) {
+  // All users can see all requests (visibility is not restricted by role)
+  if (filters.submittedBy) {
     conditions.push('r.submitted_by = ?');
     params.push(filters.submittedBy);
   }
@@ -457,57 +456,100 @@ export function submitRequest(id: number, userId: number): ReqType {
         createAuditEntry({ entityType: 'request', entityId: id, requestId: id, action: 'submitted', performedBy: userId });
         createAuditEntry({ entityType: 'request', entityId: id, requestId: id, action: 'status_changed', oldValue: request.status, newValue: 'approved', performedBy: userId, metadata: { reason: 'All approval steps filtered by conditions' } });
       } else {
-        // Create approval steps
-        const insertStep = db.prepare(`
-          INSERT INTO request_approval_steps (request_id, chain_step_id, step_order, status, assigned_to)
-          VALUES (?, ?, ?, ?, ?)
-        `);
+        // Check if this is a re-submit after RETURN (resume at returned_from_step)
+        const isResubmit = request.returned_from_step != null;
+        const resumeFromStep = request.returned_from_step;
 
-        // Determine which steps should be initially active:
-        // - First sequential step, OR all parallel steps in the first parallel group
-        const firstStep = applicableSteps[0];
-        const firstGroup = firstStep.parallel_group;
-        const isFirstGroupParallel = firstStep.execution_mode === 'parallel' && firstGroup != null;
+        if (isResubmit) {
+          // Re-submit: reset returned step to pending, then activate it
+          // Steps before returned_from_step stay as approved (already completed)
+          db.prepare(`
+            UPDATE request_approval_steps SET status = 'pending', updated_at = datetime('now')
+            WHERE request_id = ? AND status = 'returned'
+          `).run(id);
 
-        for (const step of applicableSteps) {
-          const assignedTo = resolveApprover(db, step, fieldValues);
+          // Activate the step that was returned (and any parallel siblings)
+          const returnedRas = db.prepare(`
+            SELECT ras.*, acs.execution_mode, acs.parallel_group
+            FROM request_approval_steps ras
+            JOIN approval_chain_steps acs ON acs.id = ras.chain_step_id
+            WHERE ras.request_id = ? AND ras.step_order = ?
+          `).get(id, resumeFromStep) as any;
 
-          let status: string;
-          if (isFirstGroupParallel) {
-            // Activate all steps in the first parallel group
-            status = (step.execution_mode === 'parallel' && step.parallel_group === firstGroup) ? 'active' : 'pending';
-          } else {
-            status = step.step_order === firstStep.step_order ? 'active' : 'pending';
+          if (returnedRas) {
+            if (returnedRas.execution_mode === 'parallel' && returnedRas.parallel_group != null) {
+              // Activate all steps in the parallel group
+              db.prepare(`
+                UPDATE request_approval_steps SET status = 'active', updated_at = datetime('now')
+                WHERE request_id = ? AND id IN (
+                  SELECT ras2.id FROM request_approval_steps ras2
+                  JOIN approval_chain_steps acs2 ON acs2.id = ras2.chain_step_id
+                  WHERE ras2.request_id = ? AND acs2.parallel_group = ? AND ras2.status = 'pending'
+                )
+              `).run(id, id, returnedRas.parallel_group);
+            } else {
+              db.prepare("UPDATE request_approval_steps SET status = 'active', updated_at = datetime('now') WHERE request_id = ? AND step_order = ?").run(id, resumeFromStep);
+            }
           }
 
-          insertStep.run(id, step.id, step.step_order, status, assignedTo);
+          db.prepare(`
+            UPDATE requests SET status = 'pending_approval', submitted_at = ?,
+              current_step_order = ?, returned_from_step = NULL,
+              sla_deadline = ?, updated_at = datetime('now')
+            WHERE id = ?
+          `).run(now, resumeFromStep, slaDeadline, id);
+
+          createAuditEntry({ entityType: 'request', entityId: id, requestId: id, action: 'resubmitted', performedBy: userId, metadata: { resumed_from_step: resumeFromStep } });
+          createAuditEntry({ entityType: 'request', entityId: id, requestId: id, action: 'status_changed', oldValue: 'returned', newValue: 'pending_approval', performedBy: userId });
+        } else {
+          // Fresh submit: create approval steps
+          const insertStep = db.prepare(`
+            INSERT INTO request_approval_steps (request_id, chain_step_id, step_order, status, assigned_to)
+            VALUES (?, ?, ?, ?, ?)
+          `);
+
+          const firstStep = applicableSteps[0];
+          const firstGroup = firstStep.parallel_group;
+          const isFirstGroupParallel = firstStep.execution_mode === 'parallel' && firstGroup != null;
+
+          for (const step of applicableSteps) {
+            const assignedTo = resolveApprover(db, step, fieldValues);
+
+            let status: string;
+            if (isFirstGroupParallel) {
+              status = (step.execution_mode === 'parallel' && step.parallel_group === firstGroup) ? 'active' : 'pending';
+            } else {
+              status = step.step_order === firstStep.step_order ? 'active' : 'pending';
+            }
+
+            insertStep.run(id, step.id, step.step_order, status, assignedTo);
+          }
+
+          db.prepare(`
+            UPDATE requests SET status = 'pending_approval', submitted_at = ?,
+              current_step_order = ?, sla_deadline = ?, updated_at = datetime('now')
+            WHERE id = ?
+          `).run(now, firstStep.step_order, slaDeadline, id);
+
+          createAuditEntry({ entityType: 'request', entityId: id, requestId: id, action: 'submitted', performedBy: userId });
+          createAuditEntry({ entityType: 'request', entityId: id, requestId: id, action: 'status_changed', oldValue: request.status, newValue: 'pending_approval', performedBy: userId });
         }
 
-        db.prepare(`
-          UPDATE requests SET status = 'pending_approval', submitted_at = ?, current_step_order = ?, sla_deadline = ?, updated_at = datetime('now')
-          WHERE id = ?
-        `).run(now, firstStep.step_order, slaDeadline, id);
-
-        createAuditEntry({ entityType: 'request', entityId: id, requestId: id, action: 'submitted', performedBy: userId });
-        createAuditEntry({ entityType: 'request', entityId: id, requestId: id, action: 'status_changed', oldValue: request.status, newValue: 'pending_approval', performedBy: userId });
-
-        // Notify all initially active approvers
-        const activeSteps = db.prepare(`
-          SELECT ras.assigned_to, acs.step_name FROM request_approval_steps ras
-          JOIN approval_chain_steps acs ON acs.id = ras.chain_step_id
-          WHERE ras.request_id = ? AND ras.status = 'active'
-        `).all(id) as { assigned_to: number | null; step_name: string }[];
-
-        for (const activeStep of activeSteps) {
-          if (activeStep.assigned_to) {
-            createNotification({
-              userId: activeStep.assigned_to,
-              requestId: id,
-              type: 'approval_needed',
-              title: 'Approval Required',
-              message: `Request ${finalRefNum} requires your approval (${activeStep.step_name})`,
-              actionUrl: `/requests/${id}`,
-            });
+        // Dispatch pending_actions for the initially active steps using routing engine
+        const updatedRequest = getRequestById(id);
+        if (updatedRequest) {
+          const stepResolutions = resolveNextSteps(
+            {
+              id,
+              submitted_by: updatedRequest.submitted_by,
+              department_id: updatedRequest.department_id,
+              current_step_order: isResubmit ? (resumeFromStep! - 1) : 0,
+              returned_from_step: null,
+            },
+            updatedRequest.template_id
+          );
+          if (!('complete' in stepResolutions)) {
+            dispatchPendingActions({ requestId: id, stepResolutions });
           }
         }
       }
@@ -533,6 +575,9 @@ export function cancelRequest(id: number, userId: number): ReqType {
   }
 
   db.prepare("UPDATE requests SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?").run(id);
+
+  // Close any pending_actions for this request
+  onRequestClosed(id);
 
   createAuditEntry({
     entityType: 'request',

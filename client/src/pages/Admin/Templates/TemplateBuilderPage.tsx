@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../../api/client';
 import { LoadingSpinner } from '../../../components/shared/LoadingSpinner';
-import { FIELD_TYPE_META, STANDARD_FIELDS } from '@req-tracker/shared';
+import { FIELD_TYPE_META, STANDARD_FIELDS, APPROVAL_PERMISSION_LABELS } from '@req-tracker/shared';
 import { Plus, Trash2, GripVertical, ArrowLeft, Lock } from 'lucide-react';
-import { ROLE_LABELS } from '@req-tracker/shared';
-import type { FieldType, CustomFieldDefinition, ApprovalChainStep, CreateFieldPayload, CreateApprovalStepPayload, UserRole } from '@req-tracker/shared';
+import type { FieldType, CustomFieldDefinition, ApprovalChainStep, CreateFieldPayload, CreateApprovalStepPayload, ApprovalPermission, Department, Command } from '@req-tracker/shared';
 
 export function TemplateBuilderPage() {
   const { id } = useParams();
@@ -18,18 +17,32 @@ export function TemplateBuilderPage() {
   const [fields, setFields] = useState<Partial<CreateFieldPayload>[]>([]);
   const [approvalSteps, setApprovalSteps] = useState<Partial<CreateApprovalStepPayload>[]>([]);
   const [users, setUsers] = useState<{ id: number; display_name: string; role: string }[]>([]);
+  const [commands, setCommands] = useState<Command[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     loadUsers();
+    loadCommands();
+    loadDepartments();
     if (isEdit) loadTemplate();
   }, [id]);
 
   async function loadUsers() {
     const res = await api.get('/users');
     setUsers(res.data.data);
+  }
+
+  async function loadCommands() {
+    const res = await api.get('/users/commands');
+    setCommands(res.data.data);
+  }
+
+  async function loadDepartments() {
+    const res = await api.get('/departments');
+    setDepartments(res.data.data);
   }
 
   async function loadTemplate() {
@@ -39,7 +52,6 @@ export function TemplateBuilderPage() {
       setName(t.name);
       setDescription(t.description ?? '');
       setPrefix(t.prefix);
-      // Only load non-standard (custom) fields into the editable fields list
       setFields(t.fields
         .filter((f: CustomFieldDefinition) => !f.is_standard)
         .map((f: CustomFieldDefinition) => ({
@@ -57,6 +69,9 @@ export function TemplateBuilderPage() {
         approver_type: s.approver_type,
         approver_role: s.approver_role,
         approver_user_id: s.approver_user_id,
+        target_department_id: s.target_department_id,
+        required_permission: s.required_permission,
+        sla_hours: s.sla_hours,
       })));
     } catch (err) {
       console.error('Failed to load template:', err);
@@ -87,12 +102,16 @@ export function TemplateBuilderPage() {
     setApprovalSteps(prev => [...prev, {
       step_order: prev.length + 1,
       step_name: '',
-      approver_type: 'specific_user',
+      approver_type: 'permission',
     }]);
   }
 
   function removeApprovalStep(index: number) {
     setApprovalSteps(prev => prev.filter((_, i) => i !== index).map((s, i) => ({ ...s, step_order: i + 1 })));
+  }
+
+  function updateStep(index: number, updates: Partial<CreateApprovalStepPayload>) {
+    setApprovalSteps(prev => prev.map((s, i) => i === index ? { ...s, ...updates } : s));
   }
 
   async function handleSave() {
@@ -120,7 +139,7 @@ export function TemplateBuilderPage() {
           ...s,
           step_order: i + 1,
           step_name: s.step_name || `Step ${i + 1}`,
-          approver_type: s.approver_type || 'specific_user',
+          approver_type: s.approver_type || 'permission',
         })),
       };
 
@@ -141,6 +160,16 @@ export function TemplateBuilderPage() {
   if (loading) return <LoadingSpinner />;
 
   const fieldTypes = Object.entries(FIELD_TYPE_META) as [FieldType, typeof FIELD_TYPE_META[FieldType]][];
+  const permissionOptions = Object.entries(APPROVAL_PERMISSION_LABELS) as [ApprovalPermission, string][];
+
+  // Get departments for a given command (used to filter dept dropdown per step)
+  function getDepartmentsForCommand(commandId: number | undefined) {
+    if (!commandId) return [];
+    return departments.filter(d => d.command_id === commandId);
+  }
+
+  // Get the parent command (NSWG-8)
+  const parentCommand = commands.find(c => c.is_parent);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -271,7 +300,7 @@ export function TemplateBuilderPage() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-semibold text-gray-900 dark:text-gray-100">Approval Chain</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Steps are executed sequentially. Leave empty for auto-approval.</p>
+            <p className="text-xs text-gray-500 mt-0.5">Each step targets a department + permission level. Steps execute in order. Leave empty for auto-approval.</p>
           </div>
           <button onClick={addApprovalStep} className="btn-secondary btn-sm"><Plus className="w-3.5 h-3.5" /> Add Step</button>
         </div>
@@ -281,69 +310,111 @@ export function TemplateBuilderPage() {
         ) : (
           <div className="space-y-3">
             {approvalSteps.map((step, index) => (
-              <div key={index} className="flex items-center gap-3 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
-                <div className="w-8 h-8 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400 rounded-full flex items-center justify-center text-sm font-medium shrink-0">
-                  {index + 1}
+              <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400 rounded-full flex items-center justify-center text-sm font-medium shrink-0">
+                      {index + 1}
+                    </div>
+                    <span className="text-xs text-gray-400 uppercase tracking-wide">Step {index + 1}</span>
+                  </div>
+                  <button onClick={() => removeApprovalStep(index)} className="text-red-400 hover:text-red-600">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
-                <div className="flex-1 grid grid-cols-3 gap-3">
-                  <input
-                    type="text"
-                    value={step.step_name ?? ''}
-                    onChange={e => {
-                      const updated = [...approvalSteps];
-                      updated[index] = { ...step, step_name: e.target.value };
-                      setApprovalSteps(updated);
-                    }}
-                    className="input"
-                    placeholder="Step name (e.g., Manager Approval)"
-                  />
-                  <select
-                    value={step.approver_type ?? 'specific_user'}
-                    onChange={e => {
-                      const updated = [...approvalSteps];
-                      updated[index] = { ...step, approver_type: e.target.value as 'role' | 'specific_user' };
-                      setApprovalSteps(updated);
-                    }}
-                    className="input"
-                  >
-                    <option value="specific_user">Specific User</option>
-                    <option value="role">By Role</option>
-                  </select>
-                  {step.approver_type === 'specific_user' ? (
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Step Name</label>
+                    <input
+                      type="text"
+                      value={step.step_name ?? ''}
+                      onChange={e => updateStep(index, { step_name: e.target.value })}
+                      className="input"
+                      placeholder="e.g., N4 Review, Executive Approval"
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Assignment Type</label>
+                    <select
+                      value={step.approver_type ?? 'permission'}
+                      onChange={e => updateStep(index, { approver_type: e.target.value as any })}
+                      className="input"
+                    >
+                      <option value="permission">By Department + Permission</option>
+                      <option value="specific_user">Specific User</option>
+                    </select>
+                  </div>
+                </div>
+
+                {step.approver_type === 'specific_user' ? (
+                  <div>
+                    <label className="label">Assigned User</label>
                     <select
                       value={step.approver_user_id ?? ''}
-                      onChange={e => {
-                        const updated = [...approvalSteps];
-                        updated[index] = { ...step, approver_user_id: parseInt(e.target.value, 10) };
-                        setApprovalSteps(updated);
-                      }}
+                      onChange={e => updateStep(index, { approver_user_id: parseInt(e.target.value, 10) || undefined })}
                       className="input"
                     >
                       <option value="">Select user...</option>
                       {users.map(u => (
-                        <option key={u.id} value={u.id}>{u.display_name} ({u.role})</option>
+                        <option key={u.id} value={u.id}>{u.display_name}</option>
                       ))}
                     </select>
-                  ) : (
-                    <select
-                      value={step.approver_role ?? ''}
-                      onChange={e => {
-                        const updated = [...approvalSteps];
-                        updated[index] = { ...step, approver_role: e.target.value };
-                        setApprovalSteps(updated);
-                      }}
-                      className="input"
-                    >
-                      <option value="">Select role...</option>
-                      {(Object.entries(ROLE_LABELS) as [UserRole, string][]).map(([role, label]) => (
-                        <option key={role} value={role}>{label}</option>
-                      ))}
-                    </select>
-                  )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="label">Target Department</label>
+                      <select
+                        value={step.target_department_id ?? ''}
+                        onChange={e => updateStep(index, { target_department_id: parseInt(e.target.value, 10) || undefined })}
+                        className="input"
+                      >
+                        <option value="">Select department...</option>
+                        {parentCommand && (
+                          <optgroup label={parentCommand.name}>
+                            {getDepartmentsForCommand(parentCommand.id).map(d => (
+                              <option key={d.id} value={d.id}>{d.name}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {commands.filter(c => !c.is_parent).map(cmd => (
+                          <optgroup key={cmd.id} label={cmd.name}>
+                            {getDepartmentsForCommand(cmd.id).map(d => (
+                              <option key={d.id} value={d.id}>{d.name}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Permission Level</label>
+                      <select
+                        value={step.required_permission ?? ''}
+                        onChange={e => updateStep(index, { required_permission: e.target.value as ApprovalPermission || undefined })}
+                        className="input"
+                      >
+                        <option value="">Select permission...</option>
+                        {permissionOptions.map(([perm, label]) => (
+                          <option key={perm} value={perm}>{label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="label">SLA Hours (optional)</label>
+                  <input
+                    type="number"
+                    value={step.sla_hours ?? ''}
+                    onChange={e => updateStep(index, { sla_hours: parseInt(e.target.value, 10) || undefined })}
+                    className="input w-32"
+                    placeholder="e.g., 48"
+                    min={1}
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Hours until this step is considered overdue. Leave empty for system default.</p>
                 </div>
-                <button onClick={() => removeApprovalStep(index)} className="text-red-400 hover:text-red-600">
-                  <Trash2 className="w-4 h-4" />
-                </button>
               </div>
             ))}
           </div>

@@ -8,6 +8,7 @@ export * from './types/comment.js';
 export * from './types/nudge.js';
 export * from './types/api.js';
 export * from './types/dashboard.js';
+export * from './types/pendingAction.js';
 
 // Constants
 export * from './constants/statuses.js';

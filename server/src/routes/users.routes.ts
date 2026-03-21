@@ -11,15 +11,17 @@ const router = Router();
 const createUserSchema = z.object({
   email: z.string().email(),
   display_name: z.string().min(1).max(200),
-  role: z.enum(['admin', 'approver', 'n4', 'contracting', 'reviewer', 'requester', 'viewer']),
+  role: z.enum(['admin', 'standard']),
   command_id: z.number().int().positive().optional(),
+  department_id: z.number().int().positive().optional(),
 });
 
 const updateUserSchema = z.object({
   email: z.string().email().optional(),
   display_name: z.string().min(1).max(200).optional(),
-  role: z.enum(['admin', 'approver', 'n4', 'contracting', 'reviewer', 'requester', 'viewer']).optional(),
+  role: z.enum(['admin', 'standard']).optional(),
   command_id: z.number().int().positive().nullable().optional(),
+  department_id: z.number().int().positive().nullable().optional(),
   is_active: z.boolean().optional(),
 });
 

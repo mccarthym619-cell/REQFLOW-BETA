@@ -49,7 +49,7 @@ export function UserManagementPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [form, setForm] = useState<UserForm>({ email: '', display_name: '', role: 'requester', command_id: null });
+  const [form, setForm] = useState<UserForm>({ email: '', display_name: '', role: 'standard', command_id: null });
   const [saving, setSaving] = useState(false);
 
   // Search & filter state
@@ -68,7 +68,7 @@ export function UserManagementPage() {
 
   // Approval modal state
   const [approvingReg, setApprovingReg] = useState<RegistrationRequest | null>(null);
-  const [approveRole, setApproveRole] = useState<UserRole>('requester');
+  const [approveRole, setApproveRole] = useState<UserRole>('standard');
   const [denyReason, setDenyReason] = useState('');
   const [showDenyModal, setShowDenyModal] = useState<RegistrationRequest | null>(null);
 
@@ -133,7 +133,7 @@ export function UserManagementPage() {
 
   function openCreate() {
     setEditingUser(null);
-    setForm({ email: '', display_name: '', role: 'requester', command_id: null });
+    setForm({ email: '', display_name: '', role: 'standard', command_id: null });
     setShowForm(true);
   }
 
@@ -341,12 +341,7 @@ export function UserManagementPage() {
             >
               <option value="">All Roles</option>
               <option value="admin">Administrator</option>
-              <option value="approver">Approver</option>
-              <option value="n4">N4</option>
-              <option value="contracting">Contracting</option>
-              <option value="reviewer">Reviewer</option>
-              <option value="requester">Requester</option>
-              <option value="viewer">Viewer</option>
+              <option value="standard">Standard</option>
             </select>
             <select
               value={filterCommand}
@@ -481,7 +476,7 @@ export function UserManagementPage() {
                     <td className="px-4 py-3 text-sm text-gray-500">{new Date(reg.created_at + 'Z').toLocaleDateString()}</td>
                     <td className="px-4 py-3 text-right space-x-2">
                       <button
-                        onClick={() => { setApprovingReg(reg); setApproveRole('requester'); }}
+                        onClick={() => { setApprovingReg(reg); setApproveRole('standard'); }}
                         className="text-green-600 hover:text-green-800 text-sm"
                         title="Approve"
                       >
@@ -536,12 +531,7 @@ export function UserManagementPage() {
               <label className="label">Role</label>
               <select value={form.role} onChange={e => setForm(prev => ({ ...prev, role: e.target.value as UserRole }))} className="input">
                 <option value="admin">Administrator</option>
-                <option value="approver">Approver</option>
-                <option value="n4">N4</option>
-                <option value="contracting">Contracting</option>
-                <option value="reviewer">Reviewer</option>
-                <option value="requester">Requester</option>
-                <option value="viewer">Viewer</option>
+                <option value="standard">Standard</option>
               </select>
             </div>
             <div className="flex justify-end gap-2 pt-2">
@@ -671,12 +661,7 @@ export function UserManagementPage() {
               <label className="label">Assign Role</label>
               <select value={approveRole} onChange={e => setApproveRole(e.target.value as UserRole)} className="input">
                 <option value="admin">Administrator</option>
-                <option value="approver">Approver</option>
-                <option value="n4">N4</option>
-                <option value="contracting">Contracting</option>
-                <option value="reviewer">Reviewer</option>
-                <option value="requester">Requester</option>
-                <option value="viewer">Viewer</option>
+                <option value="standard">Standard</option>
               </select>
             </div>
             <div className="flex justify-end gap-2 pt-2">

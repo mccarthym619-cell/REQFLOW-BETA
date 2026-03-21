@@ -71,13 +71,11 @@ export function RequestDetailPage() {
   const pendingNudges = nudges.filter(n => !n.acknowledged_at && n.nudged_user_id === currentUser?.id);
 
   const userRole = currentUser?.role;
-  const isN4 = userRole === 'n4' || userRole === 'admin';
-  const isReviewer = userRole === 'reviewer';
-  const isContracting = userRole === 'contracting';
+  const isAdmin = userRole === 'admin';
 
-  const canPurchaseComplete = isN4 && request.status === 'approved';
-  const canReview = isReviewer && !['completed', 'cancelled', 'rejected', 'draft'].includes(request.status);
-  const canContractAward = isContracting && !['completed', 'cancelled', 'rejected', 'draft'].includes(request.status);
+  const canPurchaseComplete = isAdmin && request.status === 'approved';
+  const canReview = false; // Now handled via approval permissions, not role
+  const canContractAward = false; // Now handled via approval permissions, not role
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'details', label: 'Details' },
@@ -246,7 +244,7 @@ export function RequestDetailPage() {
           commentText={commentText}
           onCommentTextChange={setCommentText}
           onSubmitComment={handleComment}
-          canComment={userRole !== 'viewer'}
+          canComment={true}
         />
       )}
 

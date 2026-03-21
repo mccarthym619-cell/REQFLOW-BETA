@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { LayoutDashboard, FileText, CheckSquare, Bell, Settings, Users, ClipboardList, ScrollText, HelpCircle, Globe } from 'lucide-react';
+import { LayoutDashboard, FileText, CheckSquare, Bell, Settings, Users, ClipboardList, ScrollText, HelpCircle, Globe, Building2, Shield } from 'lucide-react';
 import { HelpGuide } from '../shared/HelpGuide';
 import { hasPermission } from '@req-tracker/shared';
 import type { UserRole } from '@req-tracker/shared';
@@ -17,13 +17,15 @@ const navItems = [
 const adminItems = [
   { to: '/admin/templates', icon: ClipboardList, label: 'Templates', permission: 'templates.manage' as const },
   { to: '/admin/users', icon: Users, label: 'Users', permission: 'users.manage' as const },
+  { to: '/admin/departments', icon: Building2, label: 'Departments', permission: 'departments.manage' as const },
+  { to: '/admin/permissions', icon: Shield, label: 'Permissions', permission: 'permissions.manage' as const },
   { to: '/admin/audit', icon: ScrollText, label: 'Audit Log', permission: 'audit.view' as const },
   { to: '/admin/settings', icon: Settings, label: 'Settings', permission: 'settings.manage' as const },
 ];
 
 export function Sidebar() {
   const { currentUser } = useAuth();
-  const role = (currentUser?.role ?? 'viewer') as UserRole;
+  const role = (currentUser?.role ?? 'standard') as UserRole;
   const [showHelp, setShowHelp] = useState(false);
 
   return (

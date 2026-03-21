@@ -11,13 +11,13 @@ import { useDashboardSummary, useDashboardPending, useDashboardActivity, useDash
 
 export function DashboardPage() {
   const { currentUser } = useAuth();
-  const isN4 = currentUser?.role === 'n4' || currentUser?.role === 'admin';
-  const isRequester = currentUser?.role === 'requester';
+  const isAdmin = currentUser?.role === 'admin';
+  const isStandard = currentUser?.role === 'standard';
 
   const summaryQuery = useDashboardSummary();
   const pendingQuery = useDashboardPending();
   const activityQuery = useDashboardActivity();
-  const awaitingQuery = useDashboardAwaitingCompletion(isN4);
+  const awaitingQuery = useDashboardAwaitingCompletion(isAdmin);
 
   const loading = summaryQuery.isLoading || pendingQuery.isLoading || activityQuery.isLoading;
   if (loading) return <LoadingSpinner />;
@@ -33,8 +33,8 @@ export function DashboardPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Dashboard</h1>
 
-      {/* Pending Your Action — top of page for requesters */}
-      {isRequester && (
+      {/* Pending Your Action — top of page for standard users */}
+      {isStandard && (
         <div className="card">
           <div className="p-4 border-b border-gray-100 dark:border-gray-700">
             <h2 className="font-semibold text-gray-900 dark:text-gray-100">Pending Your Action</h2>
@@ -82,8 +82,8 @@ export function DashboardPage() {
         ))}
       </div>
 
-      {/* Awaiting Purchase Completion — N4 / Admin only */}
-      {isN4 && awaitingCompletion.length > 0 && (
+      {/* Awaiting Purchase Completion — Admin only */}
+      {isAdmin && awaitingCompletion.length > 0 && (
         <div className="card">
           <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
             <Package className="w-5 h-5 text-green-600 dark:text-green-400" />
@@ -119,9 +119,9 @@ export function DashboardPage() {
         </div>
       )}
 
-      <div className={`grid grid-cols-1 ${!isRequester ? 'lg:grid-cols-2' : ''} gap-6`}>
-        {/* Pending Actions — hidden for requesters (shown at top instead) */}
-        {!isRequester && (
+      <div className={`grid grid-cols-1 ${!isStandard ? 'lg:grid-cols-2' : ''} gap-6`}>
+        {/* Pending Actions — hidden for standard users (shown at top instead) */}
+        {!isStandard && (
           <div className="card">
             <div className="p-4 border-b border-gray-100 dark:border-gray-700">
               <h2 className="font-semibold text-gray-900 dark:text-gray-100">Pending Your Action</h2>
