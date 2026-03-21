@@ -119,15 +119,14 @@ export function runMigrations(): void {
   // Migration: migrate old user roles to new two-axis model
   // SQLite CHECK constraints can't be altered, so we must recreate the table
   // if the old CHECK constraint still exists (production DB has old 7-role CHECK).
+  // Detection: check the table's SQL definition from sqlite_master for the old CHECK.
   const hasOldRoleCheck = (() => {
-    try {
-      // Test if 'standard' is allowed by the current CHECK constraint
-      db.exec("UPDATE users SET role = 'standard' WHERE role = '__nonexistent__'");
-      return false; // No error = 'standard' is allowed (new schema or no CHECK)
-    } catch (e: any) {
-      if (e.code === 'SQLITE_CONSTRAINT_CHECK') return true;
-      return false;
-    }
+    const tableInfo = db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name='users'"
+    ).get() as { sql: string } | undefined;
+    if (!tableInfo) return false;
+    // If the CREATE TABLE SQL contains the old 7-role CHECK, we need to recreate
+    return tableInfo.sql.includes("'approver'") || tableInfo.sql.includes("'requester'");
   })();
 
   if (hasOldRoleCheck) {
